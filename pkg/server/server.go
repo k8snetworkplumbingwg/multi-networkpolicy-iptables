@@ -1,3 +1,19 @@
+/*
+Copyright 2020 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package server
 
 import (
@@ -9,11 +25,11 @@ import (
 
 	"github.com/containernetworking/plugins/pkg/ns"
 
+	"github.com/k8snetworkplumbingwg/multi-networkpolicy-iptables/pkg/controllers"
 	multiv1beta1 "github.com/k8snetworkplumbingwg/multi-networkpolicy/pkg/apis/k8s.cni.cncf.io/v1beta1"
 	multiclient "github.com/k8snetworkplumbingwg/multi-networkpolicy/pkg/client/clientset/versioned"
 	multiinformer "github.com/k8snetworkplumbingwg/multi-networkpolicy/pkg/client/informers/externalversions"
 	multilisterv1beta1 "github.com/k8snetworkplumbingwg/multi-networkpolicy/pkg/client/listers/k8s.cni.cncf.io/v1beta1"
-	"github.com/k8snetworkplumbingwg/multi-networkpolicy-iptables/pkg/controllers"
 	netdefv1 "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
 	netdefclient "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/client/clientset/versioned"
 	netdefinformerv1 "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/client/informers/externalversions"
@@ -402,7 +418,7 @@ func (s *Server) syncMultiPolicy() {
 		if p.Spec.NodeName == s.Hostname {
 			podInfo, err := s.podMap.GetPodInfo(p)
 			if err != nil {
-				klog.Errorf("cannot get podInfo: %v", err)
+				klog.Errorf("cannot get %s/%s podInfo: %v", p.Namespace, p.Name, err)
 				continue
 			}
 			if len(podInfo.Interfaces) == 0 {
