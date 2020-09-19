@@ -1,0 +1,20 @@
+# This dockerfile is specific to building Multus for OpenShift
+FROM openshift/origin-release:golang-1.14 as build
+
+# Add everything
+ADD . /usr/src/multi-networkpolicy-iptables
+WORKDIR /usr/src/multi-networkpolicy-iptables
+RUN go build ./cmd/multi-networkpolicy-iptables/
+
+FROM openshift/origin-base
+COPY --from=build /usr/src/multi-networkpolicy-iptables/multi-networkpolicy-iptables /usr/bin
+WORKDIR /usr/bin
+
+LABEL io.k8s.display-name="Multus NetworkPolicy" \
+      io.k8s.description="This is a component of OpenShift Container Platform and provides NetworkPolicy objects for secondary interfaces created with Multus CNI" \
+      io.openshift.tags="openshift" \
+      maintainer="Doug Smith <dosmith@redhat.com>"
+
+ENTRYPOINT ["multi-networkpolicy-iptables"]
+
+
