@@ -16,6 +16,7 @@ rules:
       - namespaces
     verbs:
       - list
+      - watch
       - get
   # Watch for changes to Kubernetes NetworkPolicies.
   - apiGroups: ["networking.k8s.io"]
@@ -90,6 +91,8 @@ spec:
         command: ["/usr/bin/multi-networkpolicy-iptables"]
         args:
         - "--host-prefix=/host"
+        # uncomment this if runtime is docker
+        #- "--container-runtime=docker"
         resources:
           requests:
             cpu: "100m"
