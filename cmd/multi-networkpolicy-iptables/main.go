@@ -58,10 +58,6 @@ func main() {
 		Use:  "multi-networkpolicy-node",
 		Long: `TBD`,
 		Run: func(cmd *cobra.Command, args []string) {
-			if err := opts.Validate(); err != nil {
-				klog.Fatalf("failed validate: %v", err)
-			}
-
 			if err := opts.Run(); err != nil {
 				klog.Exit(err)
 			}

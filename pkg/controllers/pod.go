@@ -42,12 +42,30 @@ import (
 )
 
 // RuntimeKind is enum type variable for container runtime
-type RuntimeKind int
+type RuntimeKind string
 
 const (
-	Crio = iota
-	Docker
+	Cri    = "cri"
+	Docker = "docker"
 )
+
+func (rk *RuntimeKind) Set(s string) error {
+	runtime := strings.ToLower(s)
+	switch runtime {
+	case Cri, Docker:
+		*rk = RuntimeKind(runtime)
+		return nil
+	}
+	return fmt.Errorf("Invalid container-runtime option %s (possible values: \"docker\", \"cri\")", s)
+}
+
+func (rk RuntimeKind) String() string {
+	return string(rk)
+}
+
+func (rk RuntimeKind) Type() string {
+	return "RuntimeKind"
+}
 
 // PodHandler is an abstract interface of objects which receive
 // notifications about pod object changes.
@@ -217,9 +235,9 @@ type PodChangeTracker struct {
 	// items maps a service to its podChange.
 	items map[types.NamespacedName]*podChange
 
-	// for cri-o
-	crioClient pb.RuntimeServiceClient
-	crioConn   *grpc.ClientConn
+	// for cri
+	criClient pb.RuntimeServiceClient
+	criConn   *grpc.ClientConn
 
 	// for docker
 	dockerClient *docker.Client
@@ -239,12 +257,18 @@ func (pct *PodChangeTracker) getPodNetNSPath(pod *v1.Pod) (string, error) {
 		return "", fmt.Errorf("No container status")
 	}
 
-	runtimeKind := strings.Split(pod.Status.ContainerStatuses[0].ContainerID, ":")
-	if runtimeKind[0] == "docker" {
+	containerURI := strings.Split(pod.Status.ContainerStatuses[0].ContainerID, "://")
+	if len(containerURI) < 2 {
+		return "", fmt.Errorf("No container ID")
+	}
+
+	runtimeKind := containerURI[0]
+	containerID := containerURI[1]
+	switch runtimeKind {
+	case Docker:
 		if pct.dockerClient == nil {
 			return "", fmt.Errorf("cannot find docker client")
 		}
-		containerID := strings.TrimPrefix(pod.Status.ContainerStatuses[0].ContainerID, "docker://")
 		if len(containerID) > 0 {
 			json, err := pct.dockerClient.ContainerInspect(context.TODO(), containerID)
 			if err != nil {
@@ -255,19 +279,18 @@ func (pct *PodChangeTracker) getPodNetNSPath(pod *v1.Pod) (string, error) {
 			}
 			netnsPath = fmt.Sprintf("%s/proc/%d/ns/net", procPrefix, json.State.Pid)
 		}
-	} else if runtimeKind[0] == "cri-o" { // crio
-		if pct.crioConn == nil {
-			return "", fmt.Errorf("cannot find docker client")
+	default:
+		if pct.criConn == nil {
+			return "", fmt.Errorf("cannot find cri client")
 		}
-		containerID := strings.TrimPrefix(pod.Status.ContainerStatuses[0].ContainerID, "cri-o://")
 		if len(containerID) > 0 {
 			request := &pb.ContainerStatusRequest{
 				ContainerId: containerID,
 				Verbose:     true,
 			}
-			r, err := pct.crioClient.ContainerStatus(context.TODO(), request)
+			r, err := pct.criClient.ContainerStatus(context.TODO(), request)
 			if err != nil {
-				return "", fmt.Errorf("cannot get containerStatus")
+				return "", fmt.Errorf("cannot get containerStatus: %v", err)
 			}
 
 			info := r.GetInfo()
@@ -279,12 +302,8 @@ func (pct *PodChangeTracker) getPodNetNSPath(pod *v1.Pod) (string, error) {
 			}
 			netnsPath = fmt.Sprintf("%s/proc/%d/ns/net", procPrefix, int(pid))
 		}
-	} else {
-		if pct.dockerClient == nil && pct.crioConn == nil {
-			return "", nil
-		}
-		return "", fmt.Errorf("unknown container id: %s", pod.Status.ContainerStatuses[0].ContainerID)
 	}
+
 	return netnsPath, nil
 }
 
@@ -364,10 +383,10 @@ func (pct *PodChangeTracker) newPodInfo(pod *v1.Pod) (*PodInfo, error) {
 }
 
 // NewPodChangeTracker ...
-func NewPodChangeTracker(runtime RuntimeKind, hostname, hostPrefix string, networkPlugins []string, ndt *NetDefChangeTracker) *PodChangeTracker {
+func NewPodChangeTracker(runtime RuntimeKind, runtimeEndpoint, hostname, hostPrefix string, networkPlugins []string, ndt *NetDefChangeTracker) *PodChangeTracker {
 	switch runtime {
-	case Crio:
-		return NewPodChangeTrackerCrio(hostname, hostPrefix, networkPlugins, ndt)
+	case Cri:
+		return NewPodChangeTrackerCri(runtimeEndpoint, hostname, hostPrefix, networkPlugins, ndt)
 	case Docker:
 		return NewPodChangeTrackerDocker(hostname, hostPrefix, networkPlugins, ndt)
 	default:
@@ -376,10 +395,10 @@ func NewPodChangeTracker(runtime RuntimeKind, hostname, hostPrefix string, netwo
 	}
 }
 
-func NewPodChangeTrackerCrio(hostname, hostPrefix string, networkPlugins []string, ndt *NetDefChangeTracker) *PodChangeTracker {
-	crioClient, crioConn, err := GetCrioRuntimeClient(hostPrefix)
+func NewPodChangeTrackerCri(runtimeEndpoint, hostname, hostPrefix string, networkPlugins []string, ndt *NetDefChangeTracker) *PodChangeTracker {
+	criClient, criConn, err := GetCriRuntimeClient(runtimeEndpoint, hostPrefix)
 	if err != nil {
-		klog.Errorf("failed to get crio client: %v", err)
+		klog.Errorf("failed to get cri client: %v", err)
 		return nil
 	}
 
@@ -388,8 +407,8 @@ func NewPodChangeTrackerCrio(hostname, hostPrefix string, networkPlugins []strin
 		hostname:       hostname,
 		networkPlugins: networkPlugins,
 		netdefChanges:  ndt,
-		crioClient:     crioClient,
-		crioConn:       crioConn,
+		criClient:      criClient,
+		criConn:        criConn,
 	}
 }
 
@@ -526,28 +545,25 @@ func (pm *PodMap) String() string {
 // =====================================
 // misc functions...
 // =====================================
-func getRuntimeClientConnection(hostPrefix string) (*grpc.ClientConn, error) {
-	//return nil, fmt.Errorf("--runtime-endpoint is not set")
-	//Docker/cri-o
-	RuntimeEndpoint := fmt.Sprintf("unix://%s/var/run/crio/crio.sock", hostPrefix)
-	Timeout := 10 * time.Second
-
-	addr, dialer, err := k8sutils.GetAddressAndDialer(RuntimeEndpoint)
+func getRuntimeClientConnection(runtimeEndpoint, hostPrefix string) (*grpc.ClientConn, error) {
+	HostRuntimeEndpoint := fmt.Sprintf("unix://%s%s", hostPrefix, runtimeEndpoint)
+	addr, dialer, err := k8sutils.GetAddressAndDialer(HostRuntimeEndpoint)
 	if err != nil {
 		return nil, err
 	}
 
+	Timeout := 10 * time.Second
 	conn, err := grpc.Dial(addr, grpc.WithInsecure(), grpc.WithBlock(), grpc.WithTimeout(Timeout), grpc.WithContextDialer(dialer))
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect, make sure you are running as root and the runtime has been started: %v", err)
+		return nil, fmt.Errorf("failed to connect to %s, make sure you are running as root and the runtime has been started: %v", HostRuntimeEndpoint, err)
 	}
 	return conn, nil
 }
 
-// GetCrioRuntimeClient retrieves crio grpc client
-func GetCrioRuntimeClient(hostPrefix string) (pb.RuntimeServiceClient, *grpc.ClientConn, error) {
+// GetCriRuntimeClient retrieves cri grpc client
+func GetCriRuntimeClient(runtimeEndpoint, hostPrefix string) (pb.RuntimeServiceClient, *grpc.ClientConn, error) {
 	// Set up a connection to the server.
-	conn, err := getRuntimeClientConnection(hostPrefix)
+	conn, err := getRuntimeClientConnection(runtimeEndpoint, hostPrefix)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to connect: %v", err)
 	}
@@ -555,8 +571,8 @@ func GetCrioRuntimeClient(hostPrefix string) (pb.RuntimeServiceClient, *grpc.Cli
 	return runtimeClient, conn, nil
 }
 
-// CloseCrioConnection closes grpc connection in client
-func CloseCrioConnection(conn *grpc.ClientConn) error {
+// CloseCriConnection closes grpc connection in client
+func CloseCriConnection(conn *grpc.ClientConn) error {
 	if conn == nil {
 		return nil
 	}

@@ -63,7 +63,7 @@ func NewFakeServer(hostname string) *Server {
 	hostPrefix := "/host"
 	networkPlugins := []string{"multi"}
 	containerRuntime := controllers.RuntimeKind(controllers.Docker)
-	podChanges := controllers.NewPodChangeTracker(containerRuntime, hostname, hostPrefix, networkPlugins, netdefChanges)
+	podChanges := controllers.NewPodChangeTracker(containerRuntime, "", hostname, hostPrefix, networkPlugins, netdefChanges)
 	if podChanges == nil {
 		return nil
 	}
