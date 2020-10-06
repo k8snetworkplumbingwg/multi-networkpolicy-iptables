@@ -84,20 +84,6 @@ spec:
         effect: NoSchedule
       serviceAccountName: multi-networkpolicy
       containers:
-      - image: alpine:3.2
-        command:
-        - /bin/sh
-        - "-c"
-        - "sleep 60m"
-        imagePullPolicy: IfNotPresent
-        name: alpine
-        securityContext:
-          privileged: true
-          capabilities:
-            add: ["SYS_ADMIN", "SYS_NET_ADMIN"]
-        volumeMounts:
-        - name: host
-          mountPath: /host
       - name: multi-networkpolicy
         # crio support requires multus:latest for now. support 3.3 or later.
         image: docker.io/nfvpe/multi-networkpolicy-iptables:snapshot-amd64
@@ -106,9 +92,8 @@ spec:
         args:
         - "--host-prefix=/host"
         # uncomment this if runtime is docker
-        #- "--container-runtime=docker"
-        # change this if runtime is different that crio default
-        - "--container-runtime-endpoint=/run/crio/crio.sock"
+        # - "--container-runtime=docker"
+        - "--container-runtime-endpoint=/run/containerd/containerd.sock"
         resources:
           requests:
             cpu: "100m"
