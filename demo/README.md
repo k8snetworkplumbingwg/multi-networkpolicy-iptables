@@ -44,7 +44,7 @@ kubectl apply -f multi-networkpolicy-iptables/demo/alpine.yml
 ```
 
 You can the log in to the alpine pod and check the
-[iptables rules](demo/iptables.out) that are enforcing the policy:
+[iptables rules](demo/iptables.log) that are enforcing the policy:
 ```
 kubectl exec -ti alpine -- /bin/sh
 ...

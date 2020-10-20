@@ -1,0 +1,53 @@
+ # iptables -L -v
+Chain INPUT (policy ACCEPT 0 packets, 0 bytes)
+ pkts bytes target     prot opt in     out     source               destination         
+    0     0 MULTI-INGRESS  all  --  net1   any     anywhere             anywhere            
+
+Chain FORWARD (policy ACCEPT 0 packets, 0 bytes)
+ pkts bytes target     prot opt in     out     source               destination         
+
+Chain OUTPUT (policy ACCEPT 0 packets, 0 bytes)
+ pkts bytes target     prot opt in     out     source               destination         
+    0     0 MULTI-EGRESS  all  --  any    net1    anywhere             anywhere            
+
+Chain MULTI-0-EGRESS (1 references)
+ pkts bytes target     prot opt in     out     source               destination         
+    0     0 MARK       all  --  any    any     anywhere             anywhere             MARK and 0xfffcffff
+    0     0 MULTI-0-EGRESS-0-PORTS  all  --  any    any     anywhere             anywhere            
+    0     0 MULTI-0-EGRESS-0-TO  all  --  any    any     anywhere             anywhere            
+    0     0 RETURN     all  --  any    any     anywhere             anywhere             mark match 0x30000/0x30000
+    0     0 DROP       all  --  any    any     anywhere             anywhere            
+
+Chain MULTI-0-EGRESS-0-PORTS (1 references)
+ pkts bytes target     prot opt in     out     source               destination         
+    0     0 MARK       tcp  --  any    net1    anywhere             anywhere             tcp dpt:5978 MARK or 0x10000
+
+Chain MULTI-0-EGRESS-0-TO (1 references)
+ pkts bytes target     prot opt in     out     source               destination         
+    0     0 MARK       all  --  any    net1    anywhere             10.0.0.0/24          MARK or 0x20000
+
+Chain MULTI-0-INGRESS (1 references)
+ pkts bytes target     prot opt in     out     source               destination         
+    0     0 MARK       all  --  any    any     anywhere             anywhere             MARK and 0xfffcffff
+    0     0 MULTI-0-INGRESS-0-PORTS  all  --  any    any     anywhere             anywhere            
+    0     0 MULTI-0-INGRESS-0-FROM  all  --  any    any     anywhere             anywhere            
+    0     0 RETURN     all  --  any    any     anywhere             anywhere             mark match 0x30000/0x30000
+    0     0 DROP       all  --  any    any     anywhere             anywhere            
+
+Chain MULTI-0-INGRESS-0-FROM (1 references)
+ pkts bytes target     prot opt in     out     source               destination         
+    0     0 DROP       all  --  net1   any     172.17.1.0/24        anywhere            
+    0     0 MARK       all  --  net1   any     172.17.0.0/16        anywhere             MARK or 0x20000
+
+Chain MULTI-0-INGRESS-0-PORTS (1 references)
+ pkts bytes target     prot opt in     out     source               destination         
+    0     0 MARK       tcp  --  net1   any     anywhere             anywhere             tcp dpt:6379 MARK or 0x10000
+
+Chain MULTI-EGRESS (1 references)
+ pkts bytes target     prot opt in     out     source               destination         
+    0     0 MULTI-0-EGRESS  all  --  any    net1    anywhere             anywhere             /* policy:test-network-policy net-attach-def:default/macvlan-conf-1 */
+
+Chain MULTI-INGRESS (1 references)
+ pkts bytes target     prot opt in     out     source               destination         
+    0     0 MULTI-0-INGRESS  all  --  net1   any     anywhere             anywhere             /* policy:test-network-policy net-attach-def:default/macvlan-conf-1 */
+
