@@ -6,7 +6,8 @@ ADD . /usr/src/multi-networkpolicy-iptables
 WORKDIR /usr/src/multi-networkpolicy-iptables
 RUN go build ./cmd/multi-networkpolicy-iptables/
 
-FROM openshift/origin-base
+FROM registry.access.redhat.com/ubi8/ubi:latest
+RUN dnf install -y iptables
 COPY --from=build /usr/src/multi-networkpolicy-iptables/multi-networkpolicy-iptables /usr/bin
 WORKDIR /usr/bin
 
