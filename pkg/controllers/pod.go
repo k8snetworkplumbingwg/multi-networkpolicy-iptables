@@ -28,6 +28,7 @@ import (
 	docker "github.com/docker/docker/client"
 	netdefv1 "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
 	netdefutils "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/utils"
+	multiutils "github.com/k8snetworkplumbingwg/multi-networkpolicy-iptables/pkg/utils"
 
 	"google.golang.org/grpc"
 
@@ -319,11 +320,13 @@ func (pct *PodChangeTracker) newPodInfo(pod *v1.Pod) (*PodInfo, error) {
 
 	// get container network namespace
 	netnsPath := ""
-	if pct.hostname == pod.Spec.NodeName {
+	klog.V(8).Infof("pod:%s/%s, %s %s", pod.Namespace, pod.Name, pct.hostname, pod.Spec.NodeName)
+	if multiutils.CheckNodeNameIdentical(pct.hostname, pod.Spec.NodeName) {
 		netnsPath, err = pct.getPodNetNSPath(pod)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get pod network namespace: %v", err)
 		}
+		klog.V(8).Infof("NetnsPath: %s", netnsPath)
 	}
 
 	// netdefname -> plugin name map

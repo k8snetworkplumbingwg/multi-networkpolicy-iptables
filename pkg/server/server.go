@@ -30,6 +30,7 @@ import (
 	multiclient "github.com/k8snetworkplumbingwg/multi-networkpolicy/pkg/client/clientset/versioned"
 	multiinformer "github.com/k8snetworkplumbingwg/multi-networkpolicy/pkg/client/informers/externalversions"
 	multilisterv1beta1 "github.com/k8snetworkplumbingwg/multi-networkpolicy/pkg/client/listers/k8s.cni.cncf.io/v1beta1"
+	multiutils "github.com/k8snetworkplumbingwg/multi-networkpolicy-iptables/pkg/utils"
 	netdefv1 "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
 	netdefclient "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/client/clientset/versioned"
 	netdefinformerv1 "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/client/informers/externalversions"
@@ -415,7 +416,7 @@ func (s *Server) syncMultiPolicy() {
 	}
 	for _, p := range pods {
 		klog.V(8).Infof("SYNC %s/%s", p.Namespace, p.Name)
-		if p.Spec.NodeName == s.Hostname {
+		if multiutils.CheckNodeNameIdentical(s.Hostname, p.Spec.NodeName) {
 			podInfo, err := s.podMap.GetPodInfo(p)
 			if err != nil {
 				klog.Errorf("cannot get %s/%s podInfo: %v", p.Namespace, p.Name, err)
@@ -440,6 +441,8 @@ func (s *Server) syncMultiPolicy() {
 			_ = netns.Do(func(_ ns.NetNS) error {
 				return s.generatePolicyRules(p, podInfo)
 			})
+		} else {
+			klog.V(8).Infof("SYNC %s/%s: skipped", p.Namespace, p.Name)
 		}
 	}
 }
