@@ -20,7 +20,7 @@ import (
 	"strings"
 )
 
-// CheckIdenticalNodeNameIdentical checks both strings point a same node
+// CheckNodeNameIdentical checks both strings point a same node
 // it just checks hostname without domain
 func CheckNodeNameIdentical(s1, s2 string) bool {
 	return strings.Split(s1, ".")[0] == strings.Split(s2, ".")[0]

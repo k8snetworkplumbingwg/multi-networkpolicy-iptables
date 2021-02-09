@@ -26,9 +26,9 @@ import (
 	"time"
 
 	docker "github.com/docker/docker/client"
+	multiutils "github.com/k8snetworkplumbingwg/multi-networkpolicy-iptables/pkg/utils"
 	netdefv1 "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
 	netdefutils "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/utils"
-	multiutils "github.com/k8snetworkplumbingwg/multi-networkpolicy-iptables/pkg/utils"
 
 	"google.golang.org/grpc"
 
@@ -46,10 +46,13 @@ import (
 type RuntimeKind string
 
 const (
-	Cri    = "cri"
+	// Cri based runtime (e.g. cri-o)
+	Cri = "cri"
+	// Docker based runtime (will be deprecated)
 	Docker = "docker"
 )
 
+// Set specifies container runtime kind
 func (rk *RuntimeKind) Set(s string) error {
 	runtime := strings.ToLower(s)
 	switch runtime {
@@ -60,10 +63,12 @@ func (rk *RuntimeKind) Set(s string) error {
 	return fmt.Errorf("Invalid container-runtime option %s (possible values: \"docker\", \"cri\")", s)
 }
 
+// String returns current runtime kind
 func (rk RuntimeKind) String() string {
 	return string(rk)
 }
 
+// Type returns its type, "RuntimeKind"
 func (rk RuntimeKind) Type() string {
 	return "RuntimeKind"
 }
@@ -183,6 +188,8 @@ type InterfaceInfo struct {
 	IPs           []string
 }
 
+// CheckPolicyNetwork checks whether given interface is target or not,
+// based on policyNetworks
 func (info *InterfaceInfo) CheckPolicyNetwork(policyNetworks []string) bool {
 	isExists := false
 	for _, policyNetworkName := range policyNetworks {
@@ -260,7 +267,7 @@ func (pct *PodChangeTracker) getPodNetNSPath(pod *v1.Pod) (string, error) {
 
 	containerURI := strings.Split(pod.Status.ContainerStatuses[0].ContainerID, "://")
 	if len(containerURI) < 2 {
-		return "", fmt.Errorf("No container ID")
+		return "", fmt.Errorf("No container ID (%s)", pod.Status.ContainerStatuses[0].ContainerID)
 	}
 
 	runtimeKind := containerURI[0]
@@ -308,72 +315,92 @@ func (pct *PodChangeTracker) getPodNetNSPath(pod *v1.Pod) (string, error) {
 	return netnsPath, nil
 }
 
+// IsMultiNetworkpolicyTarget ...
+func IsMultiNetworkpolicyTarget(pod *v1.Pod) bool {
+	if pod.Status.Phase != v1.PodRunning {
+		return false
+	}
+
+	if pod.Spec.HostNetwork {
+		return false
+	}
+	return true
+}
+
 func (pct *PodChangeTracker) newPodInfo(pod *v1.Pod) (*PodInfo, error) {
-	networks, err := netdefutils.ParsePodNetworkAnnotation(pod)
-	if err != nil {
-		if _, ok := err.(*netdefv1.NoK8sNetworkError); !ok {
-			klog.Errorf("failed to get pod network annotation: %v", err)
-		}
-	}
-	// parse networkStatus
-	statuses, _ := netdefutils.GetNetworkStatus(pod)
-
-	// get container network namespace
-	netnsPath := ""
-	klog.V(8).Infof("pod:%s/%s, %s %s", pod.Namespace, pod.Name, pct.hostname, pod.Spec.NodeName)
-	if multiutils.CheckNodeNameIdentical(pct.hostname, pod.Spec.NodeName) {
-		netnsPath, err = pct.getPodNetNSPath(pod)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get pod network namespace: %v", err)
-		}
-		klog.V(8).Infof("NetnsPath: %s", netnsPath)
-	}
-
-	// netdefname -> plugin name map
-	networkPlugins := make(map[types.NamespacedName]string)
-	if networks == nil {
-		klog.V(8).Infof("%s/%s: NO NET", pod.ObjectMeta.Namespace, pod.ObjectMeta.Name)
-	} else {
-		klog.V(8).Infof("%s/%s: net: %v", pod.ObjectMeta.Namespace, pod.ObjectMeta.Name, networks)
-	}
-	for _, n := range networks {
-		namespace := pod.ObjectMeta.Namespace
-		if n.Namespace != "" {
-			namespace = n.Namespace
-		}
-		namespacedName := types.NamespacedName{Namespace: namespace, Name: n.Name}
-		klog.V(8).Infof("networkPlugins[%s], %v", namespacedName, pct.netdefChanges.GetPluginType(namespacedName))
-		networkPlugins[namespacedName] = pct.netdefChanges.GetPluginType(namespacedName)
-	}
-	klog.V(8).Infof("netdef->pluginMap: %v", networkPlugins)
-
-	// match it with
+	var statuses []netdefv1.NetworkStatus
+	var netnsPath string
 	var netifs []InterfaceInfo
-	for _, s := range statuses {
-		var netNamespace, netName string
-		slashItems := strings.Split(s.Name, "/")
-		if len(slashItems) == 2 {
-			netNamespace = strings.TrimSpace(slashItems[0])
-			netName = slashItems[1]
-		} else {
-			netNamespace = pod.ObjectMeta.Namespace
-			netName = s.Name
-		}
-		namespacedName := types.NamespacedName{Namespace: netNamespace, Name: netName}
-
-		for _, pluginName := range pct.networkPlugins {
-			if networkPlugins[namespacedName] == pluginName {
-				netifs = append(netifs, InterfaceInfo{
-					NetattachName: s.Name,
-					InterfaceName: s.Interface,
-					InterfaceType: networkPlugins[namespacedName],
-					IPs:           s.IPs,
-				})
+	// get network information only if the pod is ready
+	klog.V(8).Infof("pod:%s/%s %s/%s", pod.Namespace, pod.Name, pct.hostname, pod.Spec.NodeName)
+	if IsMultiNetworkpolicyTarget(pod) {
+		networks, err := netdefutils.ParsePodNetworkAnnotation(pod)
+		if err != nil {
+			if _, ok := err.(*netdefv1.NoK8sNetworkError); !ok {
+				klog.Errorf("failed to get pod network annotation: %v", err)
 			}
 		}
-	}
+		// parse networkStatus
+		statuses, _ = netdefutils.GetNetworkStatus(pod)
+		klog.V(1).Infof("pod:%s/%s %s/%s", pod.Namespace, pod.Name, pct.hostname, pod.Spec.NodeName)
 
-	klog.V(6).Infof("Pod: %s/%s netns:%s netIF:%v", pod.ObjectMeta.Namespace, pod.ObjectMeta.Name, netnsPath, netifs)
+		// get container network namespace
+		netnsPath = ""
+		if multiutils.CheckNodeNameIdentical(pct.hostname, pod.Spec.NodeName) {
+			netnsPath, err = pct.getPodNetNSPath(pod)
+			if err != nil {
+				klog.Errorf("failed to get pod(%s/%s) network namespace: %v", pod.Namespace, pod.Name, err)
+			}
+			klog.V(8).Infof("NetnsPath: %s", netnsPath)
+		}
+
+		// netdefname -> plugin name map
+		networkPlugins := make(map[types.NamespacedName]string)
+		if networks == nil {
+			klog.V(8).Infof("%s/%s: NO NET", pod.Namespace, pod.Name)
+		} else {
+			klog.V(8).Infof("%s/%s: net: %v", pod.Namespace, pod.Name, networks)
+		}
+		for _, n := range networks {
+			namespace := pod.Namespace
+			if n.Namespace != "" {
+				namespace = n.Namespace
+			}
+			namespacedName := types.NamespacedName{Namespace: namespace, Name: n.Name}
+			klog.V(8).Infof("networkPlugins[%s], %v", namespacedName, pct.netdefChanges.GetPluginType(namespacedName))
+			networkPlugins[namespacedName] = pct.netdefChanges.GetPluginType(namespacedName)
+		}
+		klog.V(8).Infof("netdef->pluginMap: %v", networkPlugins)
+
+		// match it with
+		for _, s := range statuses {
+			var netNamespace, netName string
+			slashItems := strings.Split(s.Name, "/")
+			if len(slashItems) == 2 {
+				netNamespace = strings.TrimSpace(slashItems[0])
+				netName = slashItems[1]
+			} else {
+				netNamespace = pod.ObjectMeta.Namespace
+				netName = s.Name
+			}
+			namespacedName := types.NamespacedName{Namespace: netNamespace, Name: netName}
+
+			for _, pluginName := range pct.networkPlugins {
+				if networkPlugins[namespacedName] == pluginName {
+					netifs = append(netifs, InterfaceInfo{
+						NetattachName: s.Name,
+						InterfaceName: s.Interface,
+						InterfaceType: networkPlugins[namespacedName],
+						IPs:           s.IPs,
+					})
+				}
+			}
+		}
+
+		klog.V(6).Infof("Pod: %s/%s netns:%s netIF:%v", pod.ObjectMeta.Namespace, pod.ObjectMeta.Name, netnsPath, netifs)
+	} else {
+		klog.V(1).Infof("Pod:%s/%s %s/%s, not ready", pod.Namespace, pod.Name, pct.hostname, pod.Spec.NodeName)
+	}
 	info := &PodInfo{
 		Name:          pod.ObjectMeta.Name,
 		Namespace:     pod.ObjectMeta.Namespace,
@@ -398,6 +425,7 @@ func NewPodChangeTracker(runtime RuntimeKind, runtimeEndpoint, hostname, hostPre
 	}
 }
 
+// NewPodChangeTrackerCri ...
 func NewPodChangeTrackerCri(runtimeEndpoint, hostname, hostPrefix string, networkPlugins []string, ndt *NetDefChangeTracker) *PodChangeTracker {
 	criClient, criConn, err := GetCriRuntimeClient(runtimeEndpoint, hostPrefix)
 	if err != nil {
@@ -415,6 +443,7 @@ func NewPodChangeTrackerCri(runtimeEndpoint, hostname, hostPrefix string, networ
 	}
 }
 
+// NewPodChangeTrackerDocker ...
 func NewPodChangeTrackerDocker(hostname, hostPrefix string, networkPlugins []string, ndt *NetDefChangeTracker) *PodChangeTracker {
 	cli, err := docker.NewEnvClient()
 
@@ -530,20 +559,6 @@ func (pm *PodMap) GetPodInfo(pod *v1.Pod) (*PodInfo, error) {
 
 	return nil, fmt.Errorf("not found")
 }
-
-//XXX: for debug, to be removed
-/*
-func (pm *PodMap) String() string {
-	if pm == nil {
-		return ""
-	}
-	str := ""
-	for _, v := range *pm {
-		str = fmt.Sprintf("%s\n\tpod: %s", str, v.Name)
-	}
-	return str
-}
-*/
 
 // =====================================
 // misc functions...

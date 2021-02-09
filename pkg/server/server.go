@@ -17,7 +17,9 @@ limitations under the License.
 package server
 
 import (
+	"bytes"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -26,11 +28,11 @@ import (
 	"github.com/containernetworking/plugins/pkg/ns"
 
 	"github.com/k8snetworkplumbingwg/multi-networkpolicy-iptables/pkg/controllers"
+	multiutils "github.com/k8snetworkplumbingwg/multi-networkpolicy-iptables/pkg/utils"
 	multiv1beta1 "github.com/k8snetworkplumbingwg/multi-networkpolicy/pkg/apis/k8s.cni.cncf.io/v1beta1"
 	multiclient "github.com/k8snetworkplumbingwg/multi-networkpolicy/pkg/client/clientset/versioned"
 	multiinformer "github.com/k8snetworkplumbingwg/multi-networkpolicy/pkg/client/informers/externalversions"
 	multilisterv1beta1 "github.com/k8snetworkplumbingwg/multi-networkpolicy/pkg/client/listers/k8s.cni.cncf.io/v1beta1"
-	multiutils "github.com/k8snetworkplumbingwg/multi-networkpolicy-iptables/pkg/utils"
 	netdefv1 "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
 	netdefclient "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/client/clientset/versioned"
 	netdefinformerv1 "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/client/informers/externalversions"
@@ -181,6 +183,21 @@ func NewServer(o *Options) (*Server, error) {
 		return nil, err
 	}
 
+	if o.podIptables != "" {
+		// cleanup current pod iptables directory if it exists
+		if _, err := os.Stat(o.podIptables); err == nil || !os.IsNotExist(err) {
+			err = os.RemoveAll(o.podIptables)
+			if err != nil {
+				return nil, err
+			}
+		}
+		// create pod iptables directory
+		err = os.Mkdir(o.podIptables, 0700)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	client, err := clientset.NewForConfig(kubeConfig)
 	if err != nil {
 		return nil, err
@@ -259,8 +276,6 @@ func NewServer(o *Options) (*Server, error) {
 	server.syncRunner = async.NewBoundedFrequencyRunner(
 		"sync-runner", server.syncMultiPolicy, minSyncPeriod, syncPeriod, burstSyncs)
 
-	// XXX: Need to monitor?
-	//server.ipt4Interface.Monitor(utiliptables.Chain("MULTI-NETWORK-POLICY")
 	return server, nil
 }
 
@@ -293,6 +308,15 @@ func (s *Server) OnPodUpdate(oldPod, pod *v1.Pod) {
 func (s *Server) OnPodDelete(pod *v1.Pod) {
 	klog.V(4).Infof("OnPodDelete")
 	s.OnPodUpdate(pod, nil)
+	if multiutils.CheckNodeNameIdentical(s.Hostname, pod.Spec.NodeName) {
+		podIptables := fmt.Sprintf("%s/%s", s.Options.podIptables, pod.UID)
+		if _, err := os.Stat(podIptables); err == nil {
+			err := os.RemoveAll(podIptables)
+			if err != nil {
+				klog.Errorf("cannot remove pod dir(%s): %v", podIptables, err)
+			}
+		}
+	}
 }
 
 // OnPodSynced ...
@@ -415,6 +439,11 @@ func (s *Server) syncMultiPolicy() {
 		klog.Errorf("failed to get pods")
 	}
 	for _, p := range pods {
+		//
+		if !controllers.IsMultiNetworkpolicyTarget(p) {
+			klog.V(8).Infof("SKIP SYNC %s/%s", p.Namespace, p.Name)
+			continue
+		}
 		klog.V(8).Infof("SYNC %s/%s", p.Namespace, p.Name)
 		if multiutils.CheckNodeNameIdentical(s.Hostname, p.Spec.NodeName) {
 			podInfo, err := s.podMap.GetPodInfo(p)
@@ -439,12 +468,43 @@ func (s *Server) syncMultiPolicy() {
 
 			klog.V(8).Infof("pod: %s/%s %s", p.Namespace, p.Name, netnsPath)
 			_ = netns.Do(func(_ ns.NetNS) error {
-				return s.generatePolicyRules(p, podInfo)
+				err := s.generatePolicyRules(p, podInfo)
+				s.backupIptablesRules(p, "current")
+				return err
 			})
 		} else {
 			klog.V(8).Infof("SYNC %s/%s: skipped", p.Namespace, p.Name)
 		}
 	}
+}
+
+func (s *Server) backupIptablesRules(pod *v1.Pod, suffix string) error {
+	// skip it if no podiptables option
+	if s.Options.podIptables == "" {
+		return nil
+	}
+
+	podIptables := fmt.Sprintf("%s/%s", s.Options.podIptables, pod.UID)
+	// create directory for pod if not exist
+	if _, err := os.Stat(podIptables); os.IsNotExist(err) {
+		err := os.Mkdir(podIptables, 0700)
+		if err != nil {
+			klog.Errorf("cannot create pod dir (%s): %v", podIptables, err)
+			return err
+		}
+	}
+	file, err := os.Create(fmt.Sprintf("%s/%s.iptables", podIptables, suffix))
+	defer file.Close()
+	var buffer bytes.Buffer
+
+	// store iptable result to file
+	//XXX: need error handling? (see kube-proxy)
+	err = s.ip4Tables.SaveInto(utiliptables.TableMangle, &buffer)
+	err = s.ip4Tables.SaveInto(utiliptables.TableFilter, &buffer)
+	err = s.ip4Tables.SaveInto(utiliptables.TableNAT, &buffer)
+	_, err = buffer.WriteTo(file)
+
+	return err
 }
 
 const (
@@ -524,7 +584,7 @@ func (s *Server) generatePolicyRules(pod *v1.Pod, podInfo *controllers.PodInfo) 
 		if egressEnable {
 			iptableBuffer.renderEgress(s, podInfo, idx, policy, policyNetworks)
 		}
-		idx += 1
+		idx++
 	}
 
 	if !iptableBuffer.IsUsed() {
@@ -532,6 +592,13 @@ func (s *Server) generatePolicyRules(pod *v1.Pod, podInfo *controllers.PodInfo) 
 	}
 
 	iptableBuffer.FinalizeRules()
+
+	/* store generated iptables rules if podIptables is enabled */
+	if s.Options.podIptables != "" {
+		filePath := fmt.Sprintf("%s/%s/networkpolicy.iptables", s.Options.podIptables, pod.UID)
+		iptableBuffer.SaveRules(filePath)
+	}
+
 	if err := iptableBuffer.SyncRules(s.ip4Tables); err != nil {
 		klog.Errorf("sync rules failed: %v", err)
 		return err

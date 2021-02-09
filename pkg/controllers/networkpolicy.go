@@ -148,6 +148,7 @@ func (info *PolicyInfo) Name() string {
 	return info.Policy.ObjectMeta.Name
 }
 
+// Namespace ...
 func (info *PolicyInfo) Namespace() string {
 	return info.Policy.ObjectMeta.Namespace
 }

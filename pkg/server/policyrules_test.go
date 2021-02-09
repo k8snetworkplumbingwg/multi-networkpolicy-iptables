@@ -120,6 +120,9 @@ func NewFakePodWithNetAnnotation(namespace, name, annot, status string, labels m
 				{Name: "ctr1", Image: "image"},
 			},
 		},
+		Status: v1.PodStatus{
+			Phase: v1.PodRunning,
+		},
 	}
 }
 
