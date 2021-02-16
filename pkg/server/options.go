@@ -37,6 +37,7 @@ type Options struct {
 	containerRuntime         controllers.RuntimeKind
 	containerRuntimeEndpoint string
 	networkPlugins           []string
+	podIptables              string
 	// errCh is the channel that errors will be sent
 	errCh chan error
 }
@@ -50,8 +51,9 @@ func (o *Options) AddFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&o.Kubeconfig, "kubeconfig", o.Kubeconfig, "Path to kubeconfig file with authorization information (the master location is set by the master flag).")
 	fs.StringVar(&o.master, "master", o.master, "The address of the Kubernetes API server (overrides any value in kubeconfig)")
 	fs.StringVar(&o.hostnameOverride, "hostname-override", o.hostnameOverride, "If non-empty, will use this string as identification instead of the actual hostname.")
-	fs.StringVar(&o.hostPrefix, "host-prefix", o.hostnameOverride, "If non-empty, will use this string as prefix for host filesystem.")
+	fs.StringVar(&o.hostPrefix, "host-prefix", o.hostPrefix, "If non-empty, will use this string as prefix for host filesystem.")
 	fs.StringSliceVar(&o.networkPlugins, "network-plugins", []string{"macvlan"}, "List of network plugins to be be considered for network policies.")
+	fs.StringVar(&o.podIptables, "pod-iptables", o.podIptables, "If non-empty, will use this path to store pod's iptables for troubleshooting helper.")
 	fs.AddGoFlagSet(flag.CommandLine)
 }
 

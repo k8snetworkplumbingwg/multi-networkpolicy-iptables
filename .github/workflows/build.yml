@@ -25,10 +25,10 @@ jobs:
         run: go get github.com/mattn/goveralls
 
       - name: install golint
-        run: go get -u golang.org/x/lint/golint
+        run: GOBIN=$(pwd)/bin go get golang.org/x/lint/golint
 
       - name: golint
-        run: golint ./... | grep -v vendor | grep -v ALL_CAPS | xargs -r false
+        run: ./bin/golint ./... | grep -v vendor | grep -v ALL_CAPS | xargs -r false
 
       - name: gofmt
         run: go fmt ./...

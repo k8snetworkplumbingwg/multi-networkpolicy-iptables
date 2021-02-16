@@ -81,6 +81,9 @@ func NewFakePodWithNetAnnotation(namespace, name, annot, status string) *v1.Pod 
 				{Name: "ctr1", Image: "image"},
 			},
 		},
+		Status: v1.PodStatus{
+			Phase: v1.PodRunning,
+		},
 	}
 }
 
@@ -119,6 +122,9 @@ func NewFakePod(namespace, name string) *v1.Pod {
 			Containers: []v1.Container{
 				{Name: "ctr1", Image: "image"},
 			},
+		},
+		Status: v1.PodStatus{
+			Phase: v1.PodRunning,
 		},
 	}
 }

@@ -95,6 +95,8 @@ spec:
         #- "--container-runtime=docker"
         # change this if runtime is different that crio default
         - "--container-runtime-endpoint=/run/crio/crio.sock"
+        # uncomment this if you want to store iptables rules
+        - "--pod-iptables=/var/lib/multi-networkpolicy/iptables"
         resources:
           requests:
             cpu: "100m"
@@ -109,7 +111,12 @@ spec:
         volumeMounts:
         - name: host
           mountPath: /host
+        - name: var-lib-multinetworkpolicy
+          mountPath: /var/lib/multi-networkpolicy
       volumes:
         - name: host
           hostPath:
             path: /
+        - name: var-lib-multinetworkpolicy
+          hostPath:
+            path: /var/lib/multi-networkpolicy
