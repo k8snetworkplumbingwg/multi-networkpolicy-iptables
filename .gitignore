@@ -3,7 +3,7 @@ bin/
 e2e/bin/
 
 # binary at the top
-./multi-networkpolicy-iptables
+/multi-networkpolicy-iptables
 
 # GOPATH created by the build script
 gopath/

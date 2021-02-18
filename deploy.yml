@@ -86,7 +86,7 @@ spec:
       containers:
       - name: multi-networkpolicy
         # crio support requires multus:latest for now. support 3.3 or later.
-        image: docker.io/nfvpe/multi-networkpolicy-iptables:snapshot-amd64
+        image: ghcr.io/k8snetworkplumbingwg/multi-networkpolicy-iptables:snapshot-amd64
         imagePullPolicy: Always
         command: ["/usr/bin/multi-networkpolicy-iptables"]
         args:
