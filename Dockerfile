@@ -8,6 +8,7 @@ RUN cd /usr/src/multi-networkpolicy-iptables && \
     go build ./cmd/multi-networkpolicy-iptables/
 
 FROM centos:centos7
+LABEL org.opencontainers.image.source https://github.com/k8snetworkplumbingwg/multi-networkpolicy-iptables
 RUN yum install -y iptables-utils
 COPY --from=build /usr/src/multi-networkpolicy-iptables/multi-networkpolicy-iptables /usr/bin
 WORKDIR /usr/bin
