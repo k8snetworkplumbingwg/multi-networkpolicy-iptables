@@ -16,14 +16,19 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v2
 
-    - name: Run Revive Action by building from repository
-      uses: morphy2k/revive-action@v1.4.1
-      with:
-        config: revive.toml
-        exclude: "./vendor/..."
-        name: "Revive"
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Run Revive
+      run: |
+        GO111MODULE=off go get github.com/mgechev/revive
+        $(go env GOPATH)/bin/revive -exclude ./vendor/... ./... # this is ouput for user
+        $(go env GOPATH)/bin/revive -exclude ./vendor/... ./...| xargs -0 -r false # this is for github actions
+
+#    - name: Run Revive Action by building from repository
+#      uses: morphy2k/revive-action@v1.4.1
+#      with:
+#        exclude: "./vendor/..."
+#        name: "Revive"
+#      env:
+#        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Run go fmt
       run: diff -u <(echo -n) <(gofmt -d -s ./cmd/ ./pkg/)
