@@ -50,4 +50,4 @@ MultiNetworkPolicy creates DaemonSet and it runs `multi-networkpolicy-iptables` 
 
 ## Contact Us
 
-For any questions about multi-networkpolicy-iptables, feel free to ask a question in #k8s-npwg-discussion in the [Intel-Corp Slack](https://intel-corp.herokuapp.com/), or open up a GitHub issue.
+For any questions about Multus CNI, feel free to ask a question in #general in the [NPWG Slack](https://npwg-team.slack.com/), or open up a GitHub issue. Request an invite to NPWG slack [here](https://intel-corp.herokuapp.com/).
