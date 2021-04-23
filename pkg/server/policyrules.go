@@ -235,6 +235,7 @@ func (ipt *iptableBuffer) renderIngressFrom(s *Server, podInfo *controllers.PodI
 		return
 	}
 
+	s.podMap.Update(s.podChanges)
 	for _, peer := range from {
 		if peer.PodSelector != nil {
 			podSelectorMap, err := metav1.LabelSelectorAsMap(peer.PodSelector)
@@ -269,7 +270,12 @@ func (ipt *iptableBuffer) renderIngressFrom(s *Server, podInfo *controllers.PodI
 				if nsSelector != nil && !nsSelector.Matches(labels.Set(nsLabels.Labels)) {
 					continue
 				}
+				s.podMap.Update(s.podChanges)
 				sPodinfo, err := s.podMap.GetPodInfo(sPod)
+				if err != nil {
+					klog.Errorf("cannot get %s/%s podInfo: %v", sPod.Namespace, sPod.Name, err)
+					continue
+				}
 				for _, podIntf := range podInfo.Interfaces {
 					if !podIntf.CheckPolicyNetwork(policyNetworks) {
 						continue
@@ -400,6 +406,7 @@ func (ipt *iptableBuffer) renderEgressTo(s *Server, podInfo *controllers.PodInfo
 				nsSelector = labels.Set(nsSelectorMap).AsSelectorPreValidated()
 			}
 			s.namespaceMap.Update(s.nsChanges)
+			s.podMap.Update(s.podChanges)
 
 			for _, sPod := range pods {
 				nsLabels, err := s.namespaceMap.GetNamespaceInfo(sPod.Namespace)
@@ -410,7 +417,12 @@ func (ipt *iptableBuffer) renderEgressTo(s *Server, podInfo *controllers.PodInfo
 				if nsSelector != nil && !nsSelector.Matches(labels.Set(nsLabels.Labels)) {
 					continue
 				}
+				s.podMap.Update(s.podChanges)
 				sPodinfo, err := s.podMap.GetPodInfo(sPod)
+				if err != nil {
+					klog.Errorf("cannot get %s/%s podInfo: %v", sPod.Namespace, sPod.Name, err)
+					continue
+				}
 				for _, podIntf := range podInfo.Interfaces {
 					if !podIntf.CheckPolicyNetwork(policyNetworks) {
 						continue

@@ -431,7 +431,6 @@ func (s *Server) OnNamespaceSynced() {
 
 func (s *Server) syncMultiPolicy() {
 	klog.V(4).Infof("syncMultiPolicy")
-	s.podMap.Update(s.podChanges)
 	s.policyMap.Update(s.policyChanges)
 
 	pods, err := s.podLister.Pods(metav1.NamespaceAll).List(labels.Everything())
@@ -439,7 +438,7 @@ func (s *Server) syncMultiPolicy() {
 		klog.Errorf("failed to get pods")
 	}
 	for _, p := range pods {
-		//
+		s.podMap.Update(s.podChanges)
 		if !controllers.IsMultiNetworkpolicyTarget(p) {
 			klog.V(8).Infof("SKIP SYNC %s/%s", p.Namespace, p.Name)
 			continue
@@ -462,7 +461,7 @@ func (s *Server) syncMultiPolicy() {
 
 			netns, err := ns.GetNS(netnsPath)
 			if err != nil {
-				klog.Errorf("cannot get netns: %v", err)
+				klog.Errorf("cannot get pod (%s/%s:%s) netns: %v", p.Namespace, p.Name, p.Status.Phase, err)
 				continue
 			}
 
