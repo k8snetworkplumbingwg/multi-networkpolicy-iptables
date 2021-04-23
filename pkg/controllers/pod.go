@@ -191,13 +191,12 @@ type InterfaceInfo struct {
 // CheckPolicyNetwork checks whether given interface is target or not,
 // based on policyNetworks
 func (info *InterfaceInfo) CheckPolicyNetwork(policyNetworks []string) bool {
-	isExists := false
 	for _, policyNetworkName := range policyNetworks {
 		if policyNetworkName == info.NetattachName {
-			isExists = true
+			return true
 		}
 	}
-	return isExists
+	return false
 }
 
 // PodInfo contains information that defines a pod.
@@ -208,6 +207,19 @@ type PodInfo struct {
 	NetworkStatus []netdefv1.NetworkStatus
 	NodeName      string
 	Interfaces    []InterfaceInfo
+}
+
+// CheckPolicyNetwork checks whether given pod is target or not,
+// based on policyNetworks
+func (info *PodInfo) CheckPolicyNetwork(policyNetworks []string) bool {
+	for _, intf := range info.Interfaces {
+		for _, policyNetworkName := range policyNetworks {
+			if policyNetworkName == intf.NetattachName {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // GetMultusNetIFs ...

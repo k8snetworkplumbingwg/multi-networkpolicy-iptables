@@ -431,6 +431,8 @@ func (s *Server) OnNamespaceSynced() {
 
 func (s *Server) syncMultiPolicy() {
 	klog.V(4).Infof("syncMultiPolicy")
+	s.namespaceMap.Update(s.nsChanges)
+	s.podMap.Update(s.podChanges)
 	s.policyMap.Update(s.policyChanges)
 
 	pods, err := s.podLister.Pods(metav1.NamespaceAll).List(labels.Everything())
@@ -445,6 +447,7 @@ func (s *Server) syncMultiPolicy() {
 		}
 		klog.V(8).Infof("SYNC %s/%s", p.Namespace, p.Name)
 		if multiutils.CheckNodeNameIdentical(s.Hostname, p.Spec.NodeName) {
+			s.podMap.Update(s.podChanges)
 			podInfo, err := s.podMap.GetPodInfo(p)
 			if err != nil {
 				klog.Errorf("cannot get %s/%s podInfo: %v", p.Namespace, p.Name, err)
@@ -537,6 +540,9 @@ func (s *Server) generatePolicyRules(pod *v1.Pod, podInfo *controllers.PodInfo) 
 	idx := 0
 	for _, p := range s.policyMap {
 		policy := p.Policy
+		if policy.GetNamespace() != pod.Namespace {
+			continue
+		}
 		if policy.Spec.PodSelector.Size() != 0 {
 			policyMap, err := metav1.LabelSelectorAsMap(&policy.Spec.PodSelector)
 			if err != nil {
@@ -570,20 +576,22 @@ func (s *Server) generatePolicyRules(pod *v1.Pod, podInfo *controllers.PodInfo) 
 		}
 		policyNetworksAnnot = strings.ReplaceAll(policyNetworksAnnot, " ", "")
 		policyNetworks := strings.Split(policyNetworksAnnot, ",")
-		for idx, networkName := range policyNetworks {
+		for pidx, networkName := range policyNetworks {
 			// fill namespace
 			if strings.IndexAny(networkName, "/") == -1 {
-				policyNetworks[idx] = fmt.Sprintf("%s/%s", policy.GetNamespace(), networkName)
+				policyNetworks[pidx] = fmt.Sprintf("%s/%s", policy.GetNamespace(), networkName)
 			}
 		}
 
-		if ingressEnable {
-			iptableBuffer.renderIngress(s, podInfo, idx, policy, policyNetworks)
+		if podInfo.CheckPolicyNetwork(policyNetworks) {
+			if ingressEnable {
+				iptableBuffer.renderIngress(s, podInfo, idx, policy, policyNetworks)
+			}
+			if egressEnable {
+				iptableBuffer.renderEgress(s, podInfo, idx, policy, policyNetworks)
+			}
+			idx++
 		}
-		if egressEnable {
-			iptableBuffer.renderEgress(s, podInfo, idx, policy, policyNetworks)
-		}
-		idx++
 	}
 
 	if !iptableBuffer.IsUsed() {
