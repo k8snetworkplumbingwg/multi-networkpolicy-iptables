@@ -259,6 +259,10 @@ func (pct *PodChangeTracker) String() string {
 func (pct *PodChangeTracker) getPodNetNSPath(pod *v1.Pod) (string, error) {
 	netnsPath := ""
 
+	if pod.Status.Phase != v1.PodRunning {
+		return "", fmt.Errorf("Pod is not running")
+	}
+
 	// get Container netns
 	procPrefix := ""
 	if len(pod.Status.ContainerStatuses) == 0 {
