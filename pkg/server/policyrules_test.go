@@ -721,6 +721,8 @@ var _ = Describe("policyrules testing - invalid case", func() {
 -A MULTI-0-INGRESS -j MULTI-0-INGRESS-0-FROM
 -A MULTI-0-INGRESS -m mark --mark 0x30000/0x30000 -j RETURN
 -A MULTI-0-INGRESS -j DROP
+-A MULTI-0-INGRESS-0-PORTS -m comment --comment "no ingress ports, skipped" -j MARK --set-xmark 0x10000/0x10000
+-A MULTI-0-INGRESS-0-FROM -m comment --comment "no ingress from, skipped" -j MARK --set-xmark 0x20000/0x20000
 COMMIT
 `)
 		Expect(buf.filterRules.Bytes()).To(Equal(finalizedRules))
@@ -809,6 +811,8 @@ COMMIT
 -A MULTI-0-INGRESS -j MULTI-0-INGRESS-0-FROM
 -A MULTI-0-INGRESS -m mark --mark 0x30000/0x30000 -j RETURN
 -A MULTI-0-INGRESS -j DROP
+-A MULTI-0-INGRESS-0-PORTS -m comment --comment "no ingress ports, skipped" -j MARK --set-xmark 0x10000/0x10000
+-A MULTI-0-INGRESS-0-FROM -m comment --comment "no ingress from, skipped" -j MARK --set-xmark 0x20000/0x20000
 COMMIT
 `)
 		Expect(buf.filterRules.Bytes()).To(Equal(finalizedRules))
@@ -884,6 +888,8 @@ COMMIT
 -A MULTI-0-EGRESS -j MULTI-0-EGRESS-0-TO
 -A MULTI-0-EGRESS -m mark --mark 0x30000/0x30000 -j RETURN
 -A MULTI-0-EGRESS -j DROP
+-A MULTI-0-EGRESS-0-PORTS -m comment --comment "no egress ports, skipped" -j MARK --set-xmark 0x10000/0x10000
+-A MULTI-0-EGRESS-0-TO -m comment --comment "no egress to, skipped" -j MARK --set-xmark 0x20000/0x20000
 COMMIT
 `)
 		Expect(buf.filterRules.Bytes()).To(Equal(finalizedRules))
@@ -972,6 +978,8 @@ COMMIT
 -A MULTI-0-EGRESS -j MULTI-0-EGRESS-0-TO
 -A MULTI-0-EGRESS -m mark --mark 0x30000/0x30000 -j RETURN
 -A MULTI-0-EGRESS -j DROP
+-A MULTI-0-EGRESS-0-PORTS -m comment --comment "no egress ports, skipped" -j MARK --set-xmark 0x10000/0x10000
+-A MULTI-0-EGRESS-0-TO -m comment --comment "no egress to, skipped" -j MARK --set-xmark 0x20000/0x20000
 COMMIT
 `)
 		Expect(buf.filterRules.Bytes()).To(Equal(finalizedRules))
