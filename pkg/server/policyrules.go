@@ -24,8 +24,7 @@ import (
 
 	"github.com/k8snetworkplumbingwg/multi-networkpolicy-iptables/pkg/controllers"
 	multiv1beta1 "github.com/k8snetworkplumbingwg/multi-networkpolicy/pkg/apis/k8s.cni.cncf.io/v1beta1"
-
-	//v1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/klog"
@@ -200,7 +199,8 @@ func (ipt *iptableBuffer) renderIngressPorts(s *Server, podInfo *controllers.Pod
 
 	validPorts := 0
 	for _, port := range ports {
-		proto := strings.ToLower(string(*port.Protocol))
+		proto := renderProtocol(port.Protocol)
+
 		for _, podIntf := range podInfo.Interfaces {
 			if !podIntf.CheckPolicyNetwork(policyNetworks) {
 				continue
@@ -353,7 +353,8 @@ func (ipt *iptableBuffer) renderEgressPorts(s *Server, podInfo *controllers.PodI
 
 	validPorts := 0
 	for _, port := range ports {
-		proto := strings.ToLower(string(*port.Protocol))
+		proto := renderProtocol(port.Protocol)
+
 		for _, podIntf := range podInfo.Interfaces {
 			if !podIntf.CheckPolicyNetwork(policyNetworks) {
 				continue
@@ -492,4 +493,13 @@ func writeLine(buf *bytes.Buffer, words ...string) {
 func writeBytesLine(buf *bytes.Buffer, bytes []byte) {
 	buf.Write(bytes)
 	buf.WriteByte('\n')
+}
+
+func renderProtocol(proto *v1.Protocol) string {
+	p := v1.ProtocolTCP
+	if proto != nil {
+		p = *proto
+	}
+
+	return strings.ToLower(string(p))
 }

@@ -611,6 +611,72 @@ COMMIT
 		Expect(buf.filterRules.Bytes()).To(Equal(finalizedRules))
 	})
 
+	It("default values", func() {
+		port := intstr.FromInt(8888)
+		policies1 := &multiv1beta1.MultiNetworkPolicy{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "policies1",
+				Namespace: "testns1",
+			},
+			Spec: multiv1beta1.MultiNetworkPolicySpec{
+				Ingress: []multiv1beta1.MultiNetworkPolicyIngressRule{
+					{
+						Ports: []multiv1beta1.MultiNetworkPolicyPort{
+							{
+								Port: &port,
+							},
+						},
+					},
+				},
+				Egress: []multiv1beta1.MultiNetworkPolicyEgressRule{
+					{
+						Ports: []multiv1beta1.MultiNetworkPolicyPort{
+							{
+								Port: &port,
+							},
+						},
+					},
+				},
+			},
+		}
+
+		ipt := fakeiptables.NewFake()
+		Expect(ipt).NotTo(BeNil())
+		buf := newIptableBuffer()
+		Expect(buf).NotTo(BeNil())
+		buf.Init(ipt)
+
+		s := NewFakeServer("samplehost")
+		Expect(s).NotTo(BeNil())
+
+		AddNamespace(s, "testns1")
+
+		Expect(s.netdefChanges.Update(
+			nil,
+			NewNetDef("testns1", "net-attach1", NewCNIConfig("testCNI", "multi"))),
+		).To(BeTrue())
+		Expect(s.netdefChanges.GetPluginType(types.NamespacedName{Namespace: "testns1", Name: "net-attach1"})).
+			To(Equal("multi"))
+
+		pod1 := NewFakePodWithNetAnnotation(
+			"testns1",
+			"testpod1",
+			"net-attach1",
+			NewFakeNetworkStatus("testns1", "net-attach1", "192.168.1.1", "10.1.1.1"),
+			nil)
+		AddPod(s, pod1)
+		podInfo1, err := s.podMap.GetPodInfo(pod1)
+		Expect(err).To(BeNil())
+
+		buf.renderIngress(s, podInfo1, 0, policies1, []string{"testns1/net-attach1"})
+		buf.renderEgress(s, podInfo1, 0, policies1, []string{"testns1/net-attach1"})
+
+		portRules := []byte("-A MULTI-0-INGRESS-0-PORTS -i net1 -m tcp -p tcp --dport 8888 -j MARK --set-xmark 0x10000/0x10000\n")
+		Expect(buf.ingressPorts.Bytes()).To(Equal(portRules))
+
+		portRules = []byte("-A MULTI-0-EGRESS-0-PORTS -o net1 -m tcp -p tcp --dport 8888 -j MARK --set-xmark 0x10000/0x10000\n")
+		Expect(buf.egressPorts.Bytes()).To(Equal(portRules))
+	})
 })
 
 var _ = Describe("policyrules testing - invalid case", func() {
