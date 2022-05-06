@@ -232,7 +232,7 @@ func (ipt *iptableBuffer) renderIngressFrom(s *Server, podInfo *controllers.PodI
 	s.podMap.Update(s.podChanges)
 	validPeers := 0
 	for _, peer := range from {
-		if peer.PodSelector != nil {
+		if peer.PodSelector != nil || peer.NamespaceSelector != nil {
 			podSelectorMap, err := metav1.LabelSelectorAsMap(peer.PodSelector)
 			if err != nil {
 				klog.Errorf("pod selector: %v", err)
@@ -386,7 +386,7 @@ func (ipt *iptableBuffer) renderEgressTo(s *Server, podInfo *controllers.PodInfo
 	s.podMap.Update(s.podChanges)
 	validPeers := 0
 	for _, peer := range to {
-		if peer.PodSelector != nil {
+		if peer.PodSelector != nil || peer.NamespaceSelector != nil {
 			podSelectorMap, err := metav1.LabelSelectorAsMap(peer.PodSelector)
 			if err != nil {
 				klog.Errorf("pod selector: %v", err)
