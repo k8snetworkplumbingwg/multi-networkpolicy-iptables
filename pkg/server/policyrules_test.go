@@ -517,6 +517,88 @@ COMMIT
 		Expect(buf.filterRules.String()).To(Equal(string(finalizedRules)))
 	})
 
+	It("enforce policy with net-attach-def in a different namespace than pods", func() {
+		ingressPolicies1 := &multiv1beta1.MultiNetworkPolicy{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "ingressPolicies1",
+				Namespace: "testns1",
+			},
+			Spec: multiv1beta1.MultiNetworkPolicySpec{
+				Ingress: []multiv1beta1.MultiNetworkPolicyIngressRule{
+					{
+						From: []multiv1beta1.MultiNetworkPolicyPeer{
+							{
+								NamespaceSelector: &metav1.LabelSelector{
+									MatchLabels: map[string]string{
+										"nsname": "testns2",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		ipt := fakeiptables.NewFake()
+		Expect(ipt).NotTo(BeNil())
+		buf := newIptableBuffer()
+		Expect(buf).NotTo(BeNil())
+
+		// verify buf initialized at init
+		buf.Init(ipt)
+		s := NewFakeServer("samplehost")
+		Expect(s).NotTo(BeNil())
+
+		AddNamespace(s, "default")
+		AddNamespace(s, "testns1")
+		AddNamespace(s, "testns2")
+
+		Expect(s.netdefChanges.Update(
+			nil,
+			NewNetDef("default", "net-attach1", NewCNIConfig("testCNI", "multi")))).To(BeTrue())
+		Expect(s.netdefChanges.GetPluginType(types.NamespacedName{Namespace: "default", Name: "net-attach1"})).To(Equal("multi"))
+
+		pod1 := NewFakePodWithNetAnnotation(
+			"testns1",
+			"testpod1",
+			"default/net-attach1",
+			NewFakeNetworkStatus("default", "net-attach1", "192.168.1.1", "10.1.1.1"),
+			nil)
+		AddPod(s, pod1)
+		podInfo1, err := s.podMap.GetPodInfo(pod1)
+		Expect(err).To(BeNil())
+
+		pod2 := NewFakePodWithNetAnnotation(
+			"testns2",
+			"testpod2",
+			"default/net-attach1",
+			NewFakeNetworkStatus("default", "net-attach1", "192.168.1.2", "10.1.1.2"),
+			nil)
+		AddPod(s, pod2)
+		buf.renderIngress(s, podInfo1, 0, ingressPolicies1, []string{"default/net-attach1"})
+
+		buf.FinalizeRules()
+		finalizedRules := []byte(
+			`*filter
+:MULTI-INGRESS - [0:0]
+:MULTI-EGRESS - [0:0]
+:MULTI-0-INGRESS - [0:0]
+:MULTI-0-INGRESS-0-PORTS - [0:0]
+:MULTI-0-INGRESS-0-FROM - [0:0]
+-A MULTI-INGRESS -m comment --comment "policy:ingressPolicies1 net-attach-def:default/net-attach1" -i net1 -j MULTI-0-INGRESS
+-A MULTI-0-INGRESS -j MARK --set-xmark 0x0/0x30000
+-A MULTI-0-INGRESS -j MULTI-0-INGRESS-0-PORTS
+-A MULTI-0-INGRESS -j MULTI-0-INGRESS-0-FROM
+-A MULTI-0-INGRESS -m mark --mark 0x30000/0x30000 -j RETURN
+-A MULTI-0-INGRESS -j DROP
+-A MULTI-0-INGRESS-0-PORTS -m comment --comment "no ingress ports, skipped" -j MARK --set-xmark 0x10000/0x10000
+-A MULTI-0-INGRESS-0-FROM -i net1 -s 10.1.1.2 -j MARK --set-xmark 0x20000/0x20000
+COMMIT
+`)
+		Expect(buf.filterRules.String()).To(Equal(string(finalizedRules)))
+	})
+
 	It("egress rules ipblock", func() {
 		port := intstr.FromInt(8888)
 		protoTCP := v1.ProtocolTCP
