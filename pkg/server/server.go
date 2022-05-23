@@ -298,7 +298,7 @@ func (s *Server) OnPodAdd(pod *v1.Pod) {
 
 // OnPodUpdate ...
 func (s *Server) OnPodUpdate(oldPod, pod *v1.Pod) {
-	klog.V(4).Infof("OnPodUpdate")
+	klog.V(4).Infof("OnPodUpdate %s -> %s", podNamespacedName(oldPod), podNamespacedName(pod))
 	if s.podChanges.Update(oldPod, pod) && s.podSynced {
 		s.Sync()
 	}
@@ -338,7 +338,7 @@ func (s *Server) OnPolicyAdd(policy *multiv1beta1.MultiNetworkPolicy) {
 
 // OnPolicyUpdate ...
 func (s *Server) OnPolicyUpdate(oldPolicy, policy *multiv1beta1.MultiNetworkPolicy) {
-	klog.V(4).Infof("OnPolicyUpdate")
+	klog.V(4).Infof("OnPolicyUpdate %s -> %s", policyNamespacedName(oldPolicy), policyNamespacedName(policy))
 	if s.policyChanges.Update(oldPolicy, policy) && s.isInitialized() {
 		s.Sync()
 	}
@@ -371,7 +371,7 @@ func (s *Server) OnNetDefAdd(net *netdefv1.NetworkAttachmentDefinition) {
 
 // OnNetDefUpdate ...
 func (s *Server) OnNetDefUpdate(oldNet, net *netdefv1.NetworkAttachmentDefinition) {
-	klog.V(4).Infof("OnNetDefUpdate")
+	klog.V(4).Infof("OnNetDefUpdate %s -> %s", nadNamespacedName(oldNet), nadNamespacedName(net))
 	if s.netdefChanges.Update(oldNet, net) && s.isInitialized() {
 		s.Sync()
 	}
@@ -404,7 +404,7 @@ func (s *Server) OnNamespaceAdd(ns *v1.Namespace) {
 
 // OnNamespaceUpdate ...
 func (s *Server) OnNamespaceUpdate(oldNamespace, ns *v1.Namespace) {
-	klog.V(4).Infof("OnNamespaceUpdate")
+	klog.V(4).Infof("OnNamespaceUpdate: %s -> %s", namespaceName(oldNamespace), namespaceName(ns))
 	if s.nsChanges.Update(oldNamespace, ns) && s.isInitialized() {
 		s.Sync()
 	}
@@ -612,4 +612,32 @@ func (s *Server) generatePolicyRules(pod *v1.Pod, podInfo *controllers.PodInfo) 
 	}
 
 	return nil
+}
+
+func podNamespacedName(o *v1.Pod) string {
+	if o == nil {
+		return "<nil>"
+	}
+	return o.GetNamespace() + "/" + o.GetName()
+}
+
+func namespaceName(o *v1.Namespace) string {
+	if o == nil {
+		return "<nil>"
+	}
+	return o.GetName()
+}
+
+func policyNamespacedName(o *multiv1beta1.MultiNetworkPolicy) string {
+	if o == nil {
+		return "<nil>"
+	}
+	return o.GetNamespace() + "/" + o.GetName()
+}
+
+func nadNamespacedName(o *netdefv1.NetworkAttachmentDefinition) string {
+	if o == nil {
+		return "<nil>"
+	}
+	return o.GetNamespace() + "/" + o.GetName()
 }
