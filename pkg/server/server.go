@@ -180,7 +180,7 @@ func NewServer(o *Options) (*Server, error) {
 		).ClientConfig()
 	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("server creation failed for kubeconfig [%s] master URL [%s]: %w", o.Kubeconfig, o.master, err)
 	}
 
 	if o.podIptables != "" {
@@ -188,34 +188,34 @@ func NewServer(o *Options) (*Server, error) {
 		if _, err := os.Stat(o.podIptables); err == nil || !os.IsNotExist(err) {
 			err = os.RemoveAll(o.podIptables)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("server creation failed while deleting pod iptables directory [%s]: %w", o.podIptables, err)
 			}
 		}
 		// create pod iptables directory
 		err = os.Mkdir(o.podIptables, 0700)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("server creation failed while creating pod iptables directory [%s]: %w", o.podIptables, err)
 		}
 	}
 
 	client, err := clientset.NewForConfig(kubeConfig)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("server creation failed while creating clientset for kubeconfig [%s]: %w", kubeConfig, err)
 	}
 
 	networkPolicyClient, err := multiclient.NewForConfig(kubeConfig)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("server creation failed while multi network policy creating clientset for kubeconfig [%s]: %w", kubeConfig, err)
 	}
 
 	netdefClient, err := netdefclient.NewForConfig(kubeConfig)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("server creation failed while creating net-attach-def clientset for kubeconfig [%s]: %w", kubeConfig, err)
 	}
 
 	hostname, err := utilnode.GetHostname(o.hostnameOverride)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("server creation failed while getting hostname with override [%s]: %w", o.hostnameOverride, err)
 	}
 
 	eventBroadcaster := record.NewBroadcaster()
@@ -437,7 +437,7 @@ func (s *Server) syncMultiPolicy() {
 
 	pods, err := s.podLister.Pods(metav1.NamespaceAll).List(labels.Everything())
 	if err != nil {
-		klog.Errorf("failed to get pods")
+		klog.Errorf("failed to get pods: %v", err)
 	}
 	for _, p := range pods {
 		s.podMap.Update(s.podChanges)
@@ -515,7 +515,7 @@ const (
 )
 
 func (s *Server) generatePolicyRules(pod *v1.Pod, podInfo *controllers.PodInfo) error {
-	klog.V(8).Infof("Generate rules for Pod :%v/%v\n", podInfo.Namespace, podInfo.Name)
+	klog.V(8).Infof("Generate rules for Pod: %v/%v\n", podInfo.Namespace, podInfo.Name)
 	// -t filter -N MULTI-POLICY-INGRESS # ensure chain
 	s.ip4Tables.EnsureChain(utiliptables.TableFilter, ingressChain)
 	// -t filter -N MULTI-POLICY-EGRESS # ensure chain
@@ -546,7 +546,7 @@ func (s *Server) generatePolicyRules(pod *v1.Pod, podInfo *controllers.PodInfo) 
 		if policy.Spec.PodSelector.Size() != 0 {
 			policyMap, err := metav1.LabelSelectorAsMap(&policy.Spec.PodSelector)
 			if err != nil {
-				klog.Errorf("label selector: %v", err)
+				klog.Errorf("bad label selector for policy [%s]: %v", policyNamespacedName(policy), err)
 				continue
 			}
 			policyPodSelector := labels.Set(policyMap).AsSelectorPreValidated()
@@ -607,7 +607,7 @@ func (s *Server) generatePolicyRules(pod *v1.Pod, podInfo *controllers.PodInfo) 
 	}
 
 	if err := iptableBuffer.SyncRules(s.ip4Tables); err != nil {
-		klog.Errorf("sync rules failed: %v", err)
+		klog.Errorf("sync rules failed for pod [%s]: %v", podNamespacedName(pod), err)
 		return err
 	}
 
