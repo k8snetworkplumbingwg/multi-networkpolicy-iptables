@@ -180,7 +180,7 @@ func NewServer(o *Options) (*Server, error) {
 		).ClientConfig()
 	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("server creation failed for kubeconfig [%s] master URL [%s]: %w", o.Kubeconfig, o.master, err)
 	}
 
 	if o.podIptables != "" {
@@ -188,34 +188,34 @@ func NewServer(o *Options) (*Server, error) {
 		if _, err := os.Stat(o.podIptables); err == nil || !os.IsNotExist(err) {
 			err = os.RemoveAll(o.podIptables)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("server creation failed while deleting pod iptables directory [%s]: %w", o.podIptables, err)
 			}
 		}
 		// create pod iptables directory
 		err = os.Mkdir(o.podIptables, 0700)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("server creation failed while creating pod iptables directory [%s]: %w", o.podIptables, err)
 		}
 	}
 
 	client, err := clientset.NewForConfig(kubeConfig)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("server creation failed while creating clientset for kubeconfig [%s]: %w", kubeConfig, err)
 	}
 
 	networkPolicyClient, err := multiclient.NewForConfig(kubeConfig)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("server creation failed while multi network policy creating clientset for kubeconfig [%s]: %w", kubeConfig, err)
 	}
 
 	netdefClient, err := netdefclient.NewForConfig(kubeConfig)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("server creation failed while creating net-attach-def clientset for kubeconfig [%s]: %w", kubeConfig, err)
 	}
 
 	hostname, err := utilnode.GetHostname(o.hostnameOverride)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("server creation failed while getting hostname with override [%s]: %w", o.hostnameOverride, err)
 	}
 
 	eventBroadcaster := record.NewBroadcaster()
@@ -298,7 +298,7 @@ func (s *Server) OnPodAdd(pod *v1.Pod) {
 
 // OnPodUpdate ...
 func (s *Server) OnPodUpdate(oldPod, pod *v1.Pod) {
-	klog.V(4).Infof("OnPodUpdate")
+	klog.V(4).Infof("OnPodUpdate %s -> %s", podNamespacedName(oldPod), podNamespacedName(pod))
 	if s.podChanges.Update(oldPod, pod) && s.podSynced {
 		s.Sync()
 	}
@@ -338,7 +338,7 @@ func (s *Server) OnPolicyAdd(policy *multiv1beta1.MultiNetworkPolicy) {
 
 // OnPolicyUpdate ...
 func (s *Server) OnPolicyUpdate(oldPolicy, policy *multiv1beta1.MultiNetworkPolicy) {
-	klog.V(4).Infof("OnPolicyUpdate")
+	klog.V(4).Infof("OnPolicyUpdate %s -> %s", policyNamespacedName(oldPolicy), policyNamespacedName(policy))
 	if s.policyChanges.Update(oldPolicy, policy) && s.isInitialized() {
 		s.Sync()
 	}
@@ -371,7 +371,7 @@ func (s *Server) OnNetDefAdd(net *netdefv1.NetworkAttachmentDefinition) {
 
 // OnNetDefUpdate ...
 func (s *Server) OnNetDefUpdate(oldNet, net *netdefv1.NetworkAttachmentDefinition) {
-	klog.V(4).Infof("OnNetDefUpdate")
+	klog.V(4).Infof("OnNetDefUpdate %s -> %s", nadNamespacedName(oldNet), nadNamespacedName(net))
 	if s.netdefChanges.Update(oldNet, net) && s.isInitialized() {
 		s.Sync()
 	}
@@ -404,7 +404,7 @@ func (s *Server) OnNamespaceAdd(ns *v1.Namespace) {
 
 // OnNamespaceUpdate ...
 func (s *Server) OnNamespaceUpdate(oldNamespace, ns *v1.Namespace) {
-	klog.V(4).Infof("OnNamespaceUpdate")
+	klog.V(4).Infof("OnNamespaceUpdate: %s -> %s", namespaceName(oldNamespace), namespaceName(ns))
 	if s.nsChanges.Update(oldNamespace, ns) && s.isInitialized() {
 		s.Sync()
 	}
@@ -437,7 +437,7 @@ func (s *Server) syncMultiPolicy() {
 
 	pods, err := s.podLister.Pods(metav1.NamespaceAll).List(labels.Everything())
 	if err != nil {
-		klog.Errorf("failed to get pods")
+		klog.Errorf("failed to get pods: %v", err)
 	}
 	for _, p := range pods {
 		s.podMap.Update(s.podChanges)
@@ -515,7 +515,7 @@ const (
 )
 
 func (s *Server) generatePolicyRules(pod *v1.Pod, podInfo *controllers.PodInfo) error {
-	klog.V(8).Infof("Generate rules for Pod :%v/%v\n", podInfo.Namespace, podInfo.Name)
+	klog.V(8).Infof("Generate rules for Pod: %v/%v\n", podInfo.Namespace, podInfo.Name)
 	// -t filter -N MULTI-POLICY-INGRESS # ensure chain
 	s.ip4Tables.EnsureChain(utiliptables.TableFilter, ingressChain)
 	// -t filter -N MULTI-POLICY-EGRESS # ensure chain
@@ -546,7 +546,7 @@ func (s *Server) generatePolicyRules(pod *v1.Pod, podInfo *controllers.PodInfo) 
 		if policy.Spec.PodSelector.Size() != 0 {
 			policyMap, err := metav1.LabelSelectorAsMap(&policy.Spec.PodSelector)
 			if err != nil {
-				klog.Errorf("label selector: %v", err)
+				klog.Errorf("bad label selector for policy [%s]: %v", policyNamespacedName(policy), err)
 				continue
 			}
 			policyPodSelector := labels.Set(policyMap).AsSelectorPreValidated()
@@ -607,9 +607,37 @@ func (s *Server) generatePolicyRules(pod *v1.Pod, podInfo *controllers.PodInfo) 
 	}
 
 	if err := iptableBuffer.SyncRules(s.ip4Tables); err != nil {
-		klog.Errorf("sync rules failed: %v", err)
+		klog.Errorf("sync rules failed for pod [%s]: %v", podNamespacedName(pod), err)
 		return err
 	}
 
 	return nil
+}
+
+func podNamespacedName(o *v1.Pod) string {
+	if o == nil {
+		return "<nil>"
+	}
+	return o.GetNamespace() + "/" + o.GetName()
+}
+
+func namespaceName(o *v1.Namespace) string {
+	if o == nil {
+		return "<nil>"
+	}
+	return o.GetName()
+}
+
+func policyNamespacedName(o *multiv1beta1.MultiNetworkPolicy) string {
+	if o == nil {
+		return "<nil>"
+	}
+	return o.GetNamespace() + "/" + o.GetName()
+}
+
+func nadNamespacedName(o *netdefv1.NetworkAttachmentDefinition) string {
+	if o == nil {
+		return "<nil>"
+	}
+	return o.GetNamespace() + "/" + o.GetName()
 }

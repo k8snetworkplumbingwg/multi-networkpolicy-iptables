@@ -127,7 +127,7 @@ func (c *PodConfig) Run(stopCh <-chan struct{}) {
 	}
 
 	for i := range c.eventHandlers {
-		klog.V(9).Infof("Calling handler.OnPodSynced()")
+		klog.V(10).Infof("Calling handler.OnPodSynced()")
 		c.eventHandlers[i].OnPodSynced()
 	}
 }
@@ -140,7 +140,7 @@ func (c *PodConfig) handleAddPod(obj interface{}) {
 	}
 
 	for i := range c.eventHandlers {
-		klog.V(9).Infof("Calling handler.OnPodAdd")
+		klog.V(10).Infof("Calling handler.OnPodAdd")
 		c.eventHandlers[i].OnPodAdd(pod)
 	}
 }
@@ -157,7 +157,7 @@ func (c *PodConfig) handleUpdatePod(oldObj, newObj interface{}) {
 		return
 	}
 	for i := range c.eventHandlers {
-		klog.V(9).Infof("Calling handler.OnPodUpdate")
+		klog.V(10).Infof("Calling handler.OnPodUpdate")
 		c.eventHandlers[i].OnPodUpdate(oldPod, pod)
 	}
 }
@@ -175,7 +175,7 @@ func (c *PodConfig) handleDeletePod(obj interface{}) {
 		}
 	}
 	for i := range c.eventHandlers {
-		klog.V(9).Infof("Calling handler.OnPodDelete")
+		klog.V(10).Infof("Calling handler.OnPodDelete")
 		c.eventHandlers[i].OnPodDelete(pod)
 	}
 }
