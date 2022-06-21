@@ -18,7 +18,7 @@ jobs:
 
     - name: Run Revive
       run: |
-        GO111MODULE=off go get github.com/mgechev/revive
+        go install github.com/mgechev/revive@v1.2.1
         $(go env GOPATH)/bin/revive -exclude ./vendor/... ./... # this is ouput for user
         $(go env GOPATH)/bin/revive -exclude ./vendor/... ./...| xargs -0 -r false # this is for github actions
 
