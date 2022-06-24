@@ -143,11 +143,10 @@ func (ipt *iptableBuffer) SaveRules(path string) error {
 }
 
 func (ipt *iptableBuffer) SyncRules(iptables utiliptables.Interface) error {
-	/*
-		fmt.Fprintf(os.Stderr, "========= filterRules\n")
-		fmt.Fprintf(os.Stderr, "%s", ipt.filterRules.String())
-		fmt.Fprintf(os.Stderr, "=========\n")
-	*/
+	if klog.V(6) {
+		klog.Info("restoring rules:", ipt.filterRules.String())
+	}
+
 	return iptables.RestoreAll(ipt.filterRules.Bytes(), utiliptables.NoFlushTables, utiliptables.RestoreCounters)
 }
 
