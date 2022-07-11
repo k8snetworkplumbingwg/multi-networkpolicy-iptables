@@ -538,6 +538,8 @@ func (s *Server) generatePolicyRules(pod *v1.Pod, podInfo *controllers.PodInfo) 
 	iptableBuffer.Reset()
 
 	idx := 0
+	ingressRendered := 0
+	egressRendered := 0
 	for _, p := range s.policyMap {
 		policy := p.Policy
 		if policy.GetNamespace() != pod.Namespace {
@@ -586,12 +588,20 @@ func (s *Server) generatePolicyRules(pod *v1.Pod, podInfo *controllers.PodInfo) 
 		if podInfo.CheckPolicyNetwork(policyNetworks) {
 			if ingressEnable {
 				iptableBuffer.renderIngress(s, podInfo, idx, policy, policyNetworks)
+				ingressRendered++
 			}
 			if egressEnable {
 				iptableBuffer.renderEgress(s, podInfo, idx, policy, policyNetworks)
+				egressRendered++
 			}
 			idx++
 		}
+	}
+	if ingressRendered != 0 {
+		writeLine(iptableBuffer.policyIndex, "-A", "MULTI-INGRESS", "-j", "DROP")
+	}
+	if egressRendered != 0 {
+		writeLine(iptableBuffer.policyIndex, "-A", "MULTI-EGRESS", "-j", "DROP")
 	}
 
 	if !iptableBuffer.IsUsed() {
