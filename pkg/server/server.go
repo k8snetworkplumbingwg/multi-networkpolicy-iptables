@@ -608,20 +608,41 @@ func (s *Server) generatePolicyRules(pod *v1.Pod, podInfo *controllers.PodInfo) 
 		iptableBuffer.Init(s.ip4Tables)
 	}
 
-	iptableBuffer.FinalizeRules()
+	rules := iptableBuffer.FinalizeRules()
 
 	/* store generated iptables rules if podIptables is enabled */
 	if s.Options.podIptables != "" {
 		filePath := fmt.Sprintf("%s/%s/networkpolicy.iptables", s.Options.podIptables, pod.UID)
-		iptableBuffer.SaveRules(filePath)
+		err := saveRules(filePath, rules)
+		if err != nil {
+			klog.Errorf("can't save rules: %v", err)
+		}
 	}
 
-	if err := iptableBuffer.SyncRules(s.ip4Tables); err != nil {
+	if err := syncRules(s.ip4Tables, rules); err != nil {
 		klog.Errorf("sync rules failed for pod [%s]: %v", podNamespacedName(pod), err)
 		return err
 	}
 
 	return nil
+}
+
+func saveRules(path, rules string) error {
+	file, err := os.Create(path)
+	defer file.Close()
+	if err != nil {
+		return fmt.Errorf("can't open path [%s]: %w", path, err)
+	}
+
+	_, err = fmt.Fprintf(file, "%s", rules)
+	if err != nil {
+		return fmt.Errorf("can't write rules [%s] in path [%s]: %w", rules, path, err)
+	}
+	return nil
+}
+
+func syncRules(iptables utiliptables.Interface, rules string) error {
+	return iptables.RestoreAll([]byte(rules), utiliptables.NoFlushTables, utiliptables.RestoreCounters)
 }
 
 func podNamespacedName(o *v1.Pod) string {

@@ -17,7 +17,6 @@ limitations under the License.
 package server
 
 import (
-	"bytes"
 	"fmt"
 	"time"
 
@@ -33,7 +32,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/informers"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
-	utiliptables "k8s.io/kubernetes/pkg/util/iptables"
 	fakeiptables "k8s.io/kubernetes/pkg/util/iptables/testing"
 
 	. "github.com/onsi/ginkgo"
@@ -230,15 +228,9 @@ var _ = Describe("policyrules testing", func() {
 		Expect(buf.egressTo.Bytes()).To(Equal(emptyBytes))
 
 		// finalize buf and verify rules buffer
-		buf.FinalizeRules()
-		filterRules := []byte("*filter\n:MULTI-INGRESS - [0:0]\n:MULTI-EGRESS - [0:0]\nCOMMIT\n")
-		Expect(buf.filterRules.Bytes()).To(Equal(filterRules))
-
-		// sync and verify iptable
-		Expect(buf.SyncRules(ipt)).To(BeNil())
-		iptableRules := bytes.NewBuffer(nil)
-		ipt.SaveInto(utiliptables.TableFilter, iptableRules)
-		Expect(iptableRules.Bytes()).To(Equal(filterRules))
+		actualRules := buf.FinalizeRules()
+		expectedRules := "*filter\n:MULTI-INGRESS - [0:0]\n:MULTI-EGRESS - [0:0]\nCOMMIT\n"
+		Expect(actualRules).To(Equal(expectedRules))
 
 		// reset and verify empty
 		buf.Reset()
@@ -312,8 +304,8 @@ var _ = Describe("policyrules testing", func() {
 		fromRules := []byte("-A MULTI-0-INGRESS-0-FROM -i net1 -s 10.1.1.254 -j DROP\n-A MULTI-0-INGRESS-0-FROM -i net1 -s 10.1.1.1/24 -j MARK --set-xmark 0x20000/0x20000\n-A MULTI-0-INGRESS-0-FROM -i net1 -s 10.1.1.1 -j MARK --set-xmark 0x20000/0x20000\n")
 		Expect(buf.ingressFrom.Bytes()).To(Equal(fromRules))
 
-		buf.FinalizeRules()
-		finalizedRules := []byte(
+		actualRules := buf.FinalizeRules()
+		expectedRules :=
 			`*filter
 :MULTI-INGRESS - [0:0]
 :MULTI-EGRESS - [0:0]
@@ -331,8 +323,8 @@ var _ = Describe("policyrules testing", func() {
 -A MULTI-0-INGRESS-0-FROM -i net1 -s 10.1.1.1/24 -j MARK --set-xmark 0x20000/0x20000
 -A MULTI-0-INGRESS-0-FROM -i net1 -s 10.1.1.1 -j MARK --set-xmark 0x20000/0x20000
 COMMIT
-`)
-		Expect(buf.filterRules.Bytes()).To(Equal(finalizedRules))
+`
+		Expect(actualRules).To(Equal(expectedRules))
 	})
 
 	It("ingress rules podselector/matchlabels", func() {
@@ -411,8 +403,8 @@ COMMIT
 		fromRules := []byte("-A MULTI-0-INGRESS-0-FROM -i net1 -s 10.1.1.2 -j MARK --set-xmark 0x20000/0x20000\n-A MULTI-0-INGRESS-0-FROM -i net1 -s 10.1.1.1 -j MARK --set-xmark 0x20000/0x20000\n")
 		Expect(buf.ingressFrom.Bytes()).To(Equal(fromRules))
 
-		buf.FinalizeRules()
-		finalizedRules := []byte(
+		actualRules := buf.FinalizeRules()
+		expectedRules :=
 			`*filter
 :MULTI-INGRESS - [0:0]
 :MULTI-EGRESS - [0:0]
@@ -429,8 +421,8 @@ COMMIT
 -A MULTI-0-INGRESS-0-FROM -i net1 -s 10.1.1.2 -j MARK --set-xmark 0x20000/0x20000
 -A MULTI-0-INGRESS-0-FROM -i net1 -s 10.1.1.1 -j MARK --set-xmark 0x20000/0x20000
 COMMIT
-`)
-		Expect(buf.filterRules.Bytes()).To(Equal(finalizedRules))
+`
+		Expect(actualRules).To(Equal(expectedRules))
 	})
 
 	It("ingress rules namespace selector", func() {
@@ -497,8 +489,8 @@ COMMIT
 		AddPod(s, pod2)
 		buf.renderIngress(s, podInfo1, 0, ingressPolicies1, []string{"testns1/net-attach1", "testns2/net-attach1"})
 
-		buf.FinalizeRules()
-		finalizedRules := []byte(
+		actualRules := buf.FinalizeRules()
+		expectedRules :=
 			`*filter
 :MULTI-INGRESS - [0:0]
 :MULTI-EGRESS - [0:0]
@@ -515,9 +507,9 @@ COMMIT
 -A MULTI-0-INGRESS-0-FROM -i net1 -s 10.1.1.2 -j MARK --set-xmark 0x20000/0x20000
 -A MULTI-0-INGRESS-0-FROM -i net1 -s 10.1.1.1 -j MARK --set-xmark 0x20000/0x20000
 COMMIT
-`)
+`
 
-		Expect(buf.filterRules.String()).To(Equal(string(finalizedRules)))
+		Expect(actualRules).To(Equal(expectedRules))
 	})
 
 	It("enforce policy with net-attach-def in a different namespace than pods", func() {
@@ -581,8 +573,8 @@ COMMIT
 		AddPod(s, pod2)
 		buf.renderIngress(s, podInfo1, 0, ingressPolicies1, []string{"default/net-attach1"})
 
-		buf.FinalizeRules()
-		finalizedRules := []byte(
+		actualRules := buf.FinalizeRules()
+		expectedRules :=
 			`*filter
 :MULTI-INGRESS - [0:0]
 :MULTI-EGRESS - [0:0]
@@ -599,8 +591,8 @@ COMMIT
 -A MULTI-0-INGRESS-0-FROM -i net1 -s 10.1.1.2 -j MARK --set-xmark 0x20000/0x20000
 -A MULTI-0-INGRESS-0-FROM -i net1 -s 10.1.1.1 -j MARK --set-xmark 0x20000/0x20000
 COMMIT
-`)
-		Expect(buf.filterRules.String()).To(Equal(string(finalizedRules)))
+`
+		Expect(actualRules).To(Equal(expectedRules))
 	})
 
 	It("egress rules ipblock", func() {
@@ -666,8 +658,8 @@ COMMIT
 		toRules := []byte("-A MULTI-0-EGRESS-0-TO -o net1 -d 10.1.1.254 -j DROP\n-A MULTI-0-EGRESS-0-TO -o net1 -d 10.1.1.1/24 -j MARK --set-xmark 0x20000/0x20000\n-A MULTI-0-EGRESS-0-TO -o net1 -d 10.1.1.1 -j MARK --set-xmark 0x20000/0x20000\n")
 		Expect(buf.egressTo.Bytes()).To(Equal(toRules))
 
-		buf.FinalizeRules()
-		finalizedRules := []byte(
+		actualRules := buf.FinalizeRules()
+		expectedRules :=
 			`*filter
 :MULTI-INGRESS - [0:0]
 :MULTI-EGRESS - [0:0]
@@ -685,8 +677,8 @@ COMMIT
 -A MULTI-0-EGRESS-0-TO -o net1 -d 10.1.1.1/24 -j MARK --set-xmark 0x20000/0x20000
 -A MULTI-0-EGRESS-0-TO -o net1 -d 10.1.1.1 -j MARK --set-xmark 0x20000/0x20000
 COMMIT
-`)
-		Expect(buf.filterRules.Bytes()).To(Equal(finalizedRules))
+`
+		Expect(actualRules).To(Equal(expectedRules))
 	})
 
 	It("egress rules podselector/matchlabels", func() {
@@ -765,8 +757,8 @@ COMMIT
 		toRules := []byte("-A MULTI-0-EGRESS-0-TO -o net1 -d 10.1.1.2 -j MARK --set-xmark 0x20000/0x20000\n-A MULTI-0-EGRESS-0-TO -o net1 -d 10.1.1.1 -j MARK --set-xmark 0x20000/0x20000\n")
 		Expect(buf.egressTo.Bytes()).To(Equal(toRules))
 
-		buf.FinalizeRules()
-		finalizedRules := []byte(
+		actualRules := buf.FinalizeRules()
+		expectedRules :=
 			`*filter
 :MULTI-INGRESS - [0:0]
 :MULTI-EGRESS - [0:0]
@@ -783,8 +775,8 @@ COMMIT
 -A MULTI-0-EGRESS-0-TO -o net1 -d 10.1.1.2 -j MARK --set-xmark 0x20000/0x20000
 -A MULTI-0-EGRESS-0-TO -o net1 -d 10.1.1.1 -j MARK --set-xmark 0x20000/0x20000
 COMMIT
-`)
-		Expect(buf.filterRules.Bytes()).To(Equal(finalizedRules))
+`
+		Expect(actualRules).To(Equal(expectedRules))
 	})
 
 	It("default values", func() {
@@ -874,15 +866,9 @@ var _ = Describe("policyrules testing - invalid case", func() {
 		Expect(buf.egressTo.Bytes()).To(Equal(emptyBytes))
 
 		// finalize buf and verify rules buffer
-		buf.FinalizeRules()
-		filterRules := []byte("*filter\n:MULTI-INGRESS - [0:0]\n:MULTI-EGRESS - [0:0]\nCOMMIT\n")
-		Expect(buf.filterRules.Bytes()).To(Equal(filterRules))
-
-		// sync and verify iptable
-		Expect(buf.SyncRules(ipt)).To(BeNil())
-		iptableRules := bytes.NewBuffer(nil)
-		ipt.SaveInto(utiliptables.TableFilter, iptableRules)
-		Expect(iptableRules.Bytes()).To(Equal(filterRules))
+		actualRules := buf.FinalizeRules()
+		expectedRules := "*filter\n:MULTI-INGRESS - [0:0]\n:MULTI-EGRESS - [0:0]\nCOMMIT\n"
+		Expect(actualRules).To(Equal(expectedRules))
 
 		// reset and verify empty
 		buf.Reset()
@@ -950,8 +936,8 @@ var _ = Describe("policyrules testing - invalid case", func() {
 
 		buf.renderIngress(s, podInfo1, 0, ingressPolicies1, []string{})
 
-		buf.FinalizeRules()
-		finalizedRules := []byte(
+		actualRules := buf.FinalizeRules()
+		expectedRules :=
 			`*filter
 :MULTI-INGRESS - [0:0]
 :MULTI-EGRESS - [0:0]
@@ -965,8 +951,8 @@ var _ = Describe("policyrules testing - invalid case", func() {
 -A MULTI-0-INGRESS-0-PORTS -m comment --comment "no ingress ports, skipped" -j MARK --set-xmark 0x10000/0x10000
 -A MULTI-0-INGRESS-0-FROM -m comment --comment "no ingress from, skipped" -j MARK --set-xmark 0x20000/0x20000
 COMMIT
-`)
-		Expect(buf.filterRules.Bytes()).To(Equal(finalizedRules))
+`
+		Expect(actualRules).To(Equal(expectedRules))
 	})
 
 	It("ingress rules podselector/matchlabels", func() {
@@ -1039,8 +1025,8 @@ COMMIT
 
 		buf.renderIngress(s, podInfo1, 0, ingressPolicies1, []string{})
 
-		buf.FinalizeRules()
-		finalizedRules := []byte(
+		actualRules := buf.FinalizeRules()
+		expectedRules :=
 			`*filter
 :MULTI-INGRESS - [0:0]
 :MULTI-EGRESS - [0:0]
@@ -1054,8 +1040,8 @@ COMMIT
 -A MULTI-0-INGRESS-0-PORTS -m comment --comment "no ingress ports, skipped" -j MARK --set-xmark 0x10000/0x10000
 -A MULTI-0-INGRESS-0-FROM -m comment --comment "no ingress from, skipped" -j MARK --set-xmark 0x20000/0x20000
 COMMIT
-`)
-		Expect(buf.filterRules.Bytes()).To(Equal(finalizedRules))
+`
+		Expect(actualRules).To(Equal(expectedRules))
 	})
 
 	It("egress rules ipblock", func() {
@@ -1115,8 +1101,8 @@ COMMIT
 
 		buf.renderEgress(s, podInfo1, 0, egressPolicies1, []string{})
 
-		buf.FinalizeRules()
-		finalizedRules := []byte(
+		actualRules := buf.FinalizeRules()
+		expectedRules :=
 			`*filter
 :MULTI-INGRESS - [0:0]
 :MULTI-EGRESS - [0:0]
@@ -1130,8 +1116,8 @@ COMMIT
 -A MULTI-0-EGRESS-0-PORTS -m comment --comment "no egress ports, skipped" -j MARK --set-xmark 0x10000/0x10000
 -A MULTI-0-EGRESS-0-TO -m comment --comment "no egress to, skipped" -j MARK --set-xmark 0x20000/0x20000
 COMMIT
-`)
-		Expect(buf.filterRules.Bytes()).To(Equal(finalizedRules))
+`
+		Expect(actualRules).To(Equal(expectedRules))
 	})
 
 	It("egress rules podselector/matchlabels", func() {
@@ -1204,8 +1190,8 @@ COMMIT
 
 		buf.renderEgress(s, podInfo1, 0, egressPolicies1, []string{"testns2/net-attach1"})
 
-		buf.FinalizeRules()
-		finalizedRules := []byte(
+		actualRules := buf.FinalizeRules()
+		expectedRules :=
 			`*filter
 :MULTI-INGRESS - [0:0]
 :MULTI-EGRESS - [0:0]
@@ -1219,8 +1205,8 @@ COMMIT
 -A MULTI-0-EGRESS-0-PORTS -m comment --comment "no egress ports, skipped" -j MARK --set-xmark 0x10000/0x10000
 -A MULTI-0-EGRESS-0-TO -m comment --comment "no egress to, skipped" -j MARK --set-xmark 0x20000/0x20000
 COMMIT
-`)
-		Expect(buf.filterRules.Bytes()).To(Equal(finalizedRules))
+`
+		Expect(actualRules).To(Equal(expectedRules))
 	})
 
 })

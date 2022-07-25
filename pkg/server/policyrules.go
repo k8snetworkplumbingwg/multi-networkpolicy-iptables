@@ -19,7 +19,6 @@ package server
 import (
 	"bytes"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/k8snetworkplumbingwg/multi-networkpolicy-iptables/pkg/controllers"
@@ -53,7 +52,6 @@ type iptableBuffer struct {
 	egressPorts   *bytes.Buffer
 	egressTo      *bytes.Buffer
 	filterChains  *bytes.Buffer
-	filterRules   *bytes.Buffer
 }
 
 func newIptableBuffer() *iptableBuffer {
@@ -65,7 +63,6 @@ func newIptableBuffer() *iptableBuffer {
 		egressPorts:   bytes.NewBuffer(nil),
 		egressTo:      bytes.NewBuffer(nil),
 		filterChains:  bytes.NewBuffer(nil),
-		filterRules:   bytes.NewBuffer(nil),
 		currentChain:  map[utiliptables.Chain]bool{},
 		activeChain:   map[utiliptables.Chain]bool{},
 	}
@@ -87,7 +84,6 @@ func (ipt *iptableBuffer) Init(iptables utiliptables.Interface) {
 		}
 	}
 
-	ipt.filterRules.Reset()
 	ipt.filterChains.Reset()
 	writeLine(ipt.filterChains, "*filter")
 
@@ -112,7 +108,9 @@ func (ipt *iptableBuffer) Reset() {
 	ipt.egressTo.Reset()
 }
 
-func (ipt *iptableBuffer) FinalizeRules() {
+func (ipt *iptableBuffer) FinalizeRules() string {
+	filterRules := bytes.NewBuffer(nil)
+
 	for k := range ipt.activeChain {
 		delete(ipt.currentChain, k)
 	}
@@ -122,28 +120,15 @@ func (ipt *iptableBuffer) FinalizeRules() {
 		}
 		writeLine(ipt.policyIndex, "-X", string(chainName))
 	}
-	ipt.filterRules.Write(ipt.filterChains.Bytes())
-	ipt.filterRules.Write(ipt.policyIndex.Bytes())
-	ipt.filterRules.Write(ipt.ingressPorts.Bytes())
-	ipt.filterRules.Write(ipt.ingressFrom.Bytes())
-	ipt.filterRules.Write(ipt.egressPorts.Bytes())
-	ipt.filterRules.Write(ipt.egressTo.Bytes())
-	writeLine(ipt.filterRules, "COMMIT")
-}
+	filterRules.Write(ipt.filterChains.Bytes())
+	filterRules.Write(ipt.policyIndex.Bytes())
+	filterRules.Write(ipt.ingressPorts.Bytes())
+	filterRules.Write(ipt.ingressFrom.Bytes())
+	filterRules.Write(ipt.egressPorts.Bytes())
+	filterRules.Write(ipt.egressTo.Bytes())
+	writeLine(filterRules, "COMMIT")
 
-func (ipt *iptableBuffer) SaveRules(path string) error {
-	file, err := os.Create(path)
-	defer file.Close()
-	if err != nil {
-		return err
-	}
-	//_, err = ipt.filterRules.WriteTo(file)
-	fmt.Fprintf(file, "%s", ipt.filterRules.String())
-	return err
-}
-
-func (ipt *iptableBuffer) SyncRules(iptables utiliptables.Interface) error {
-	return iptables.RestoreAll(ipt.filterRules.Bytes(), utiliptables.NoFlushTables, utiliptables.RestoreCounters)
+	return filterRules.String()
 }
 
 func (ipt *iptableBuffer) IsUsed() bool {
