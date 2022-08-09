@@ -85,7 +85,7 @@ func NewFakeServer(hostname string) *Server {
 		ConfigSyncPeriod:    15 * time.Minute,
 		NodeRef:             nodeRef,
 		ip4Tables:           fakeiptables.NewFake(),
-		//ip6Tables: fakeiptables.NewIPv6Fake(),
+		ip6Tables:           fakeiptables.NewIpv6Fake(),
 
 		hostPrefix:    hostPrefix,
 		policyChanges: policyChanges,
@@ -212,6 +212,7 @@ func NewCNIConfigList(cniName, cniType string) string {
 }
 
 var _ = Describe("policyrules testing", func() {
+
 	It("Initialization", func() {
 		ipt := fakeiptables.NewFake()
 		Expect(ipt).NotTo(BeNil())
@@ -852,6 +853,205 @@ COMMIT
 
 		portRules = []byte("-A MULTI-0-EGRESS-0-PORTS -o net1 -m tcp -p tcp --dport 8888 -j MARK --set-xmark 0x10000/0x10000\n")
 		Expect(buf.egressPorts.Bytes()).To(Equal(portRules))
+	})
+
+	Context("IPv6", func() {
+		It("shoud avoid using IPv4 addresses on ip6tables", func() {
+
+			policy1 := &multiv1beta1.MultiNetworkPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "ingressPolicies1",
+					Namespace: "testns1",
+				},
+				Spec: multiv1beta1.MultiNetworkPolicySpec{
+					Ingress: []multiv1beta1.MultiNetworkPolicyIngressRule{{
+						From: []multiv1beta1.MultiNetworkPolicyPeer{{
+							PodSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{
+									"foobar": "enabled",
+								},
+							},
+						}},
+					}},
+					Egress: []multiv1beta1.MultiNetworkPolicyEgressRule{{
+						To: []multiv1beta1.MultiNetworkPolicyPeer{{
+							PodSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{
+									"foobar": "enabled",
+								},
+							},
+						}},
+					}},
+				},
+			}
+
+			s := NewFakeServer("samplehost")
+			Expect(s).NotTo(BeNil())
+
+			AddNamespace(s, "testns1")
+
+			Expect(
+				s.netdefChanges.Update(nil, NewNetDef("testns1", "net-attach1", NewCNIConfig("testCNI", "multi"))),
+			).To(BeTrue())
+
+			pod1 := NewFakePodWithNetAnnotation(
+				"testns1",
+				"testpod1",
+				"net-attach1",
+				NewFakeNetworkStatus("testns1", "net-attach1", "192.168.1.1", "10.1.1.1"),
+				nil)
+			AddPod(s, pod1)
+			podInfo1, err := s.podMap.GetPodInfo(pod1)
+			Expect(err).To(BeNil())
+
+			pod2 := NewFakePodWithNetAnnotation(
+				"testns1",
+				"testpod2",
+				"net-attach1",
+				NewFakeNetworkStatus("testns1", "net-attach1", "192.168.1.2", "10.1.1.2"),
+				map[string]string{
+					"foobar": "enabled",
+				})
+			AddPod(s, pod2)
+
+			ipt := fakeiptables.NewIpv6Fake()
+			buf := newIptableBuffer()
+			buf.Init(ipt)
+
+			buf.renderIngress(s, podInfo1, 0, policy1, []string{"testns1/net-attach1"})
+			buf.renderEgress(s, podInfo1, 0, policy1, []string{"testns1/net-attach1"})
+
+			buf.FinalizeRules()
+
+			expectedRules := `*filter
+:MULTI-INGRESS - [0:0]
+:MULTI-EGRESS - [0:0]
+:MULTI-0-INGRESS - [0:0]
+:MULTI-0-INGRESS-0-PORTS - [0:0]
+:MULTI-0-INGRESS-0-FROM - [0:0]
+:MULTI-0-EGRESS - [0:0]
+:MULTI-0-EGRESS-0-PORTS - [0:0]
+:MULTI-0-EGRESS-0-TO - [0:0]
+-A MULTI-INGRESS -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-INGRESS -m comment --comment "policy:ingressPolicies1 net-attach-def:testns1/net-attach1" -i net1 -j MULTI-0-INGRESS
+-A MULTI-INGRESS -m mark --mark 0x30000/0x30000 -j RETURN
+-A MULTI-0-INGRESS -j MARK --set-xmark 0x0/0x30000
+-A MULTI-0-INGRESS -j MULTI-0-INGRESS-0-PORTS
+-A MULTI-0-INGRESS -j MULTI-0-INGRESS-0-FROM
+-A MULTI-EGRESS -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-EGRESS -m comment --comment "policy:ingressPolicies1 net-attach-def:testns1/net-attach1" -o net1 -j MULTI-0-EGRESS
+-A MULTI-EGRESS -m mark --mark 0x30000/0x30000 -j RETURN
+-A MULTI-0-EGRESS -j MARK --set-xmark 0x0/0x30000
+-A MULTI-0-EGRESS -j MULTI-0-EGRESS-0-PORTS
+-A MULTI-0-EGRESS -j MULTI-0-EGRESS-0-TO
+-A MULTI-0-INGRESS-0-PORTS -m comment --comment "no ingress ports, skipped" -j MARK --set-xmark 0x10000/0x10000
+-A MULTI-0-INGRESS-0-FROM -m comment --comment "no ingress from, skipped" -j MARK --set-xmark 0x20000/0x20000
+-A MULTI-0-EGRESS-0-PORTS -m comment --comment "no egress ports, skipped" -j MARK --set-xmark 0x10000/0x10000
+-A MULTI-0-EGRESS-0-TO -m comment --comment "no egress to, skipped" -j MARK --set-xmark 0x20000/0x20000
+COMMIT
+`
+
+			Expect(buf.filterRules.String()).To(Equal(expectedRules))
+		})
+
+		It("shoud manage dual stack networks", func() {
+
+			policy1 := &multiv1beta1.MultiNetworkPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "ingressPolicies1",
+					Namespace: "testns1",
+				},
+				Spec: multiv1beta1.MultiNetworkPolicySpec{
+					Ingress: []multiv1beta1.MultiNetworkPolicyIngressRule{{
+						From: []multiv1beta1.MultiNetworkPolicyPeer{{
+							PodSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{
+									"foobar": "enabled",
+								},
+							},
+						}},
+					}},
+					Egress: []multiv1beta1.MultiNetworkPolicyEgressRule{{
+						To: []multiv1beta1.MultiNetworkPolicyPeer{{
+							PodSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{
+									"foobar": "enabled",
+								},
+							},
+						}},
+					}},
+				},
+			}
+
+			s := NewFakeServer("samplehost")
+			Expect(s).NotTo(BeNil())
+
+			AddNamespace(s, "testns1")
+
+			Expect(
+				s.netdefChanges.Update(nil, NewNetDef("testns1", "net-attach1", NewCNIConfig("testCNI", "multi"))),
+			).To(BeTrue())
+
+			pod1 := NewFakePodWithNetAnnotation(
+				"testns1",
+				"testpod1",
+				"net-attach1",
+				NewFakeNetworkStatus("testns1", "net-attach1", "192.168.1.1", "10.1.1.1\",\"2001:db8:a::11"),
+				nil)
+			AddPod(s, pod1)
+			podInfo1, err := s.podMap.GetPodInfo(pod1)
+			Expect(err).To(BeNil())
+
+			pod2 := NewFakePodWithNetAnnotation(
+				"testns1",
+				"testpod2",
+				"net-attach1",
+				NewFakeNetworkStatus("testns1", "net-attach1", "192.168.1.2", "10.1.1.2\",\"2001:db8:a::12"),
+				map[string]string{
+					"foobar": "enabled",
+				})
+			AddPod(s, pod2)
+
+			ipt := fakeiptables.NewIpv6Fake()
+			buf := newIptableBuffer()
+			buf.Init(ipt)
+
+			buf.renderIngress(s, podInfo1, 0, policy1, []string{"testns1/net-attach1"})
+			buf.renderEgress(s, podInfo1, 0, policy1, []string{"testns1/net-attach1"})
+
+			buf.FinalizeRules()
+
+			expectedRules := `*filter
+:MULTI-INGRESS - [0:0]
+:MULTI-EGRESS - [0:0]
+:MULTI-0-INGRESS - [0:0]
+:MULTI-0-INGRESS-0-PORTS - [0:0]
+:MULTI-0-INGRESS-0-FROM - [0:0]
+:MULTI-0-EGRESS - [0:0]
+:MULTI-0-EGRESS-0-PORTS - [0:0]
+:MULTI-0-EGRESS-0-TO - [0:0]
+-A MULTI-INGRESS -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-INGRESS -m comment --comment "policy:ingressPolicies1 net-attach-def:testns1/net-attach1" -i net1 -j MULTI-0-INGRESS
+-A MULTI-INGRESS -m mark --mark 0x30000/0x30000 -j RETURN
+-A MULTI-0-INGRESS -j MARK --set-xmark 0x0/0x30000
+-A MULTI-0-INGRESS -j MULTI-0-INGRESS-0-PORTS
+-A MULTI-0-INGRESS -j MULTI-0-INGRESS-0-FROM
+-A MULTI-EGRESS -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-EGRESS -m comment --comment "policy:ingressPolicies1 net-attach-def:testns1/net-attach1" -o net1 -j MULTI-0-EGRESS
+-A MULTI-EGRESS -m mark --mark 0x30000/0x30000 -j RETURN
+-A MULTI-0-EGRESS -j MARK --set-xmark 0x0/0x30000
+-A MULTI-0-EGRESS -j MULTI-0-EGRESS-0-PORTS
+-A MULTI-0-EGRESS -j MULTI-0-EGRESS-0-TO
+-A MULTI-0-INGRESS-0-PORTS -m comment --comment "no ingress ports, skipped" -j MARK --set-xmark 0x10000/0x10000
+-A MULTI-0-INGRESS-0-FROM -i net1 -s 2001:db8:a::12 -j MARK --set-xmark 0x20000/0x20000
+-A MULTI-0-INGRESS-0-FROM -i net1 -s 2001:db8:a::11 -j MARK --set-xmark 0x20000/0x20000
+-A MULTI-0-EGRESS-0-PORTS -m comment --comment "no egress ports, skipped" -j MARK --set-xmark 0x10000/0x10000
+-A MULTI-0-EGRESS-0-TO -o net1 -d 2001:db8:a::12 -j MARK --set-xmark 0x20000/0x20000
+-A MULTI-0-EGRESS-0-TO -o net1 -d 2001:db8:a::11 -j MARK --set-xmark 0x20000/0x20000
+COMMIT
+`
+			Expect(buf.filterRules.String()).To(Equal(expectedRules))
+		})
 	})
 })
 
