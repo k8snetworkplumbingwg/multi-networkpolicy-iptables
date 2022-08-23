@@ -481,8 +481,7 @@ func (s *Server) syncMultiPolicy() {
 
 			klog.V(8).Infof("pod: %s/%s %s", p.Namespace, p.Name, netnsPath)
 			_ = netns.Do(func(_ ns.NetNS) error {
-				err := s.generatePolicyRules(p, podInfo)
-				s.backupIptablesRules(p, "current")
+				err := s.generatePolicyRulesForPod(p, podInfo)
 				return err
 			})
 		} else {
@@ -491,7 +490,7 @@ func (s *Server) syncMultiPolicy() {
 	}
 }
 
-func (s *Server) backupIptablesRules(pod *v1.Pod, suffix string) error {
+func (s *Server) backupIptablesRules(pod *v1.Pod, suffix string, iptables utiliptables.Interface) error {
 	// skip it if no podiptables option
 	if s.Options.podIptables == "" {
 		return nil
@@ -512,9 +511,9 @@ func (s *Server) backupIptablesRules(pod *v1.Pod, suffix string) error {
 
 	// store iptable result to file
 	//XXX: need error handling? (see kube-proxy)
-	err = s.ip4Tables.SaveInto(utiliptables.TableMangle, &buffer)
-	err = s.ip4Tables.SaveInto(utiliptables.TableFilter, &buffer)
-	err = s.ip4Tables.SaveInto(utiliptables.TableNAT, &buffer)
+	err = iptables.SaveInto(utiliptables.TableMangle, &buffer)
+	err = iptables.SaveInto(utiliptables.TableFilter, &buffer)
+	err = iptables.SaveInto(utiliptables.TableNAT, &buffer)
 	_, err = buffer.WriteTo(file)
 
 	return err
@@ -525,27 +524,41 @@ const (
 	egressChain  = "MULTI-EGRESS"
 )
 
-func (s *Server) generatePolicyRules(pod *v1.Pod, podInfo *controllers.PodInfo) error {
+func (s *Server) generatePolicyRulesForPod(pod *v1.Pod, podInfo *controllers.PodInfo) error {
+	err := s.generatePolicyRulesForPodAndFamily(pod, podInfo, s.ip4Tables)
+	if err != nil {
+		return fmt.Errorf("can't generate iptables ipv4 for pod [%s]: %w", podNamespacedName(pod), err)
+	}
+
+	err = s.generatePolicyRulesForPodAndFamily(pod, podInfo, s.ip6Tables)
+	if err != nil {
+		return fmt.Errorf("can't generate iptables ipv6 for pod [%s]: %w", podNamespacedName(pod), err)
+	}
+
+	return nil
+}
+
+func (s *Server) generatePolicyRulesForPodAndFamily(pod *v1.Pod, podInfo *controllers.PodInfo, iptables utiliptables.Interface) error {
 	klog.V(8).Infof("Generate rules for Pod: %v/%v\n", podInfo.Namespace, podInfo.Name)
 	// -t filter -N MULTI-POLICY-INGRESS # ensure chain
-	s.ip4Tables.EnsureChain(utiliptables.TableFilter, ingressChain)
+	iptables.EnsureChain(utiliptables.TableFilter, ingressChain)
 	// -t filter -N MULTI-POLICY-EGRESS # ensure chain
-	s.ip4Tables.EnsureChain(utiliptables.TableFilter, egressChain)
+	iptables.EnsureChain(utiliptables.TableFilter, egressChain)
 
 	for _, multiIF := range podInfo.Interfaces {
 		//    -A INPUT -j MULTI-POLICY-INGRESS # ensure rules
-		s.ip4Tables.EnsureRule(
+		iptables.EnsureRule(
 			utiliptables.Prepend, utiliptables.TableFilter, "INPUT", "-i", multiIF.InterfaceName, "-j", ingressChain)
 		//    -A OUTPUT -j MULTI-POLICY-EGRESS # ensure rules
-		s.ip4Tables.EnsureRule(
+		iptables.EnsureRule(
 			utiliptables.Prepend, utiliptables.TableFilter, "OUTPUT", "-o", multiIF.InterfaceName, "-j", egressChain)
 		//    -A PREROUTING -i net1 -j RETURN # ensure rules
-		s.ip4Tables.EnsureRule(
+		iptables.EnsureRule(
 			utiliptables.Prepend, utiliptables.TableNAT, "PREROUTING", "-i", multiIF.InterfaceName, "-j", "RETURN")
 	}
 
 	iptableBuffer := newIptableBuffer()
-	iptableBuffer.Init(s.ip4Tables)
+	iptableBuffer.Init(iptables)
 	iptableBuffer.Reset()
 
 	idx := 0
@@ -616,7 +629,7 @@ func (s *Server) generatePolicyRules(pod *v1.Pod, podInfo *controllers.PodInfo) 
 	}
 
 	if !iptableBuffer.IsUsed() {
-		iptableBuffer.Init(s.ip4Tables)
+		iptableBuffer.Init(iptables)
 	}
 
 	iptableBuffer.FinalizeRules()
@@ -627,9 +640,15 @@ func (s *Server) generatePolicyRules(pod *v1.Pod, podInfo *controllers.PodInfo) 
 		iptableBuffer.SaveRules(filePath)
 	}
 
-	if err := iptableBuffer.SyncRules(s.ip4Tables); err != nil {
+	if err := iptableBuffer.SyncRules(iptables); err != nil {
 		klog.Errorf("sync rules failed for pod [%s]: %v", podNamespacedName(pod), err)
 		return err
+	}
+
+	if iptables.IsIpv6() {
+		s.backupIptablesRules(pod, "current-ipv6", iptables)
+	} else {
+		s.backupIptablesRules(pod, "current-ipv4", iptables)
 	}
 
 	return nil
