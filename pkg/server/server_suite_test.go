@@ -17,13 +17,29 @@ limitations under the License.
 package server
 
 import (
+	"flag"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	"k8s.io/klog"
 
 	"testing"
 )
 
+func init() {
+	flagset := flag.NewFlagSet("mock", flag.ExitOnError)
+	klog.InitFlags(flagset)
+	flagset.Parse([]string{"-v=5"})
+}
+
 func TestServer(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "server")
+}
+
+func BenchmarkServer(b *testing.B) {
+	RegisterFailHandler(Fail)
+	for n := 0; n < b.N; n++ {
+		RunSpecs(b, "server-benchmark")
+	}
 }

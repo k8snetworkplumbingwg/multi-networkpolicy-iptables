@@ -39,6 +39,10 @@ jobs:
     - name: Test
       run: go test -v -coverprofile=profile.cov ./...
 
+    - name: Benchmark
+      run: go test -v -bench . -benchmem ./...
+
+
     - name: Send coverage
       uses: shogo82148/actions-goveralls@v1
       with:

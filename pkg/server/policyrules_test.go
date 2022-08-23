@@ -17,6 +17,7 @@ limitations under the License.
 package server
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -32,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/informers"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	"k8s.io/kubernetes/pkg/util/async"
 	fakeiptables "k8s.io/kubernetes/pkg/util/iptables/testing"
 
 	. "github.com/onsi/ginkgo"
@@ -39,10 +41,12 @@ import (
 )
 
 var informerFactory informers.SharedInformerFactory
+var fakeClient *k8sfake.Clientset
 
 // NewFakeServer creates fake server object for unit-test
 func NewFakeServer(hostname string) *Server {
-	fakeClient := k8sfake.NewSimpleClientset()
+
+	fakeClient = k8sfake.NewSimpleClientset()
 	netClient := netfake.NewSimpleClientset()
 	policyClient := multifake.NewSimpleClientset()
 
@@ -94,6 +98,9 @@ func NewFakeServer(hostname string) *Server {
 		policyMap:     make(controllers.PolicyMap),
 		namespaceMap:  make(controllers.NamespaceMap),
 		podLister:     informerFactory.Core().V1().Pods().Lister(),
+		syncRunner: async.NewBoundedFrequencyRunner(
+			"sync-runner", func() {}, 0*time.Second, 30*time.Minute, 2,
+		),
 	}
 	podConfig.RegisterEventHandler(server)
 	go podConfig.Run(wait.NeverStop)
@@ -141,6 +148,9 @@ func AddPod(s *Server, pod *v1.Pod) {
 	Expect(s.podChanges.Update(nil, pod)).To(BeTrue())
 	s.podMap.Update(s.podChanges)
 	informerFactory.Core().V1().Pods().Informer().GetIndexer().Add(pod)
+
+	_, err := fakeClient.CoreV1().Pods(pod.Namespace).Create(context.Background(), pod, metav1.CreateOptions{})
+	Expect(err).ToNot(HaveOccurred())
 }
 
 func NewFakeNetworkStatus(netns, netname, eth0, net1 string) string {
@@ -397,11 +407,11 @@ COMMIT
 
 		buf.renderIngress(s, podInfo1, 0, ingressPolicies1, []string{"testns1/net-attach1"})
 
-		portRules := []byte("-A MULTI-0-INGRESS-0-PORTS -i net1 -m tcp -p tcp --dport 8888 -j MARK --set-xmark 0x10000/0x10000\n")
-		Expect(buf.ingressPorts.Bytes()).To(Equal(portRules))
+		portRules := "-A MULTI-0-INGRESS-0-PORTS -i net1 -m tcp -p tcp --dport 8888 -j MARK --set-xmark 0x10000/0x10000\n"
+		Expect(buf.ingressPorts.String()).To(Equal(portRules))
 
-		fromRules := []byte("-A MULTI-0-INGRESS-0-FROM -i net1 -s 10.1.1.2 -j MARK --set-xmark 0x20000/0x20000\n-A MULTI-0-INGRESS-0-FROM -i net1 -s 10.1.1.1 -j MARK --set-xmark 0x20000/0x20000\n")
-		Expect(buf.ingressFrom.Bytes()).To(Equal(fromRules))
+		fromRules := "-A MULTI-0-INGRESS-0-FROM -i net1 -s 10.1.1.2 -j MARK --set-xmark 0x20000/0x20000\n-A MULTI-0-INGRESS-0-FROM -i net1 -s 10.1.1.1 -j MARK --set-xmark 0x20000/0x20000\n"
+		Expect(buf.ingressFrom.String()).To(Equal(fromRules))
 
 		actualRules := buf.FinalizeRules()
 		expectedRules :=
@@ -751,11 +761,11 @@ COMMIT
 
 		buf.renderEgress(s, podInfo1, 0, egressPolicies1, []string{"testns1/net-attach1"})
 
-		portRules := []byte("-A MULTI-0-EGRESS-0-PORTS -o net1 -m tcp -p tcp --dport 8888 -j MARK --set-xmark 0x10000/0x10000\n")
-		Expect(buf.egressPorts.Bytes()).To(Equal(portRules))
+		portRules := "-A MULTI-0-EGRESS-0-PORTS -o net1 -m tcp -p tcp --dport 8888 -j MARK --set-xmark 0x10000/0x10000\n"
+		Expect(buf.egressPorts.String()).To(Equal(portRules))
 
-		toRules := []byte("-A MULTI-0-EGRESS-0-TO -o net1 -d 10.1.1.2 -j MARK --set-xmark 0x20000/0x20000\n-A MULTI-0-EGRESS-0-TO -o net1 -d 10.1.1.1 -j MARK --set-xmark 0x20000/0x20000\n")
-		Expect(buf.egressTo.Bytes()).To(Equal(toRules))
+		toRules := "-A MULTI-0-EGRESS-0-TO -o net1 -d 10.1.1.2 -j MARK --set-xmark 0x20000/0x20000\n-A MULTI-0-EGRESS-0-TO -o net1 -d 10.1.1.1 -j MARK --set-xmark 0x20000/0x20000\n"
+		Expect(buf.egressTo.String()).To(Equal(toRules))
 
 		actualRules := buf.FinalizeRules()
 		expectedRules :=
