@@ -4,7 +4,7 @@ jobs:
   test:
     strategy:
       matrix:
-        go-version: [1.16.x]
+        go-version: [1.18.x]
         os: [ubuntu-latest] #, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
@@ -16,19 +16,10 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v2
 
-    - name: Run Revive
-      run: |
-        go install github.com/mgechev/revive@v1.2.1
-        $(go env GOPATH)/bin/revive -exclude ./vendor/... ./... # this is ouput for user
-        $(go env GOPATH)/bin/revive -exclude ./vendor/... ./...| xargs -0 -r false # this is for github actions
-
-#    - name: Run Revive Action by building from repository
-#      uses: morphy2k/revive-action@v1.4.1
-#      with:
-#        exclude: "./vendor/..."
-#        name: "Revive"
-#      env:
-#        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Run Revive Action by pulling pre-built image
+      uses: docker://morphy/revive-action:v2
+      with:
+        exclude: "./vendor/..."
 
     - name: Run go fmt
       run: diff -u <(echo -n) <(gofmt -d -s ./cmd/ ./pkg/)

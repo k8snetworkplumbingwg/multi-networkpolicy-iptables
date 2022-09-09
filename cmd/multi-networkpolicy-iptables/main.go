@@ -14,6 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// This is a Kubernetes controller to generate iptables rules for
+// multi-networkpolicy.
+// It reads multiNetworkpolicy object and generates iptables rules into
+// container network namespaces.
 package main
 
 import (
