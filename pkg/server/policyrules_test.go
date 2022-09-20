@@ -60,10 +60,11 @@ func NewFakeServer(hostname string) *Server {
 	if nsChanges == nil {
 		return nil
 	}
-	hostPrefix := "/host"
+	// expects that /var/run/containerd/containerd.sock, for docker/containerd
+	hostPrefix := "/"
 	networkPlugins := []string{"multi"}
-	containerRuntime := controllers.RuntimeKind(controllers.Docker)
-	podChanges := controllers.NewPodChangeTracker(containerRuntime, "", hostname, hostPrefix, networkPlugins, netdefChanges)
+	containerRuntime := controllers.RuntimeKind(controllers.Cri)
+	podChanges := controllers.NewPodChangeTracker(containerRuntime, "/var/run/containerd/containerd.sock", hostname, hostPrefix, networkPlugins, netdefChanges)
 	if podChanges == nil {
 		return nil
 	}
