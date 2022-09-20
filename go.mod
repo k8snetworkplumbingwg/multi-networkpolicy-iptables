@@ -3,7 +3,7 @@ module github.com/k8snetworkplumbingwg/multi-networkpolicy-iptables
 go 1.13
 
 require (
-	github.com/containernetworking/cni v0.7.1
+	github.com/containernetworking/cni v0.8.1
 	github.com/containernetworking/plugins v0.8.5
 	github.com/k8snetworkplumbingwg/multi-networkpolicy v0.0.0-20200903074708-7b3ce95ae804
 	github.com/k8snetworkplumbingwg/network-attachment-definition-client v0.0.0-20200528071255-22c819bc6e7e
