@@ -38,6 +38,8 @@ const (
 	Jump = "-j "
 	// Reject specifies the reject target
 	Reject = "REJECT"
+	// Accept specifies the accept target
+	Accept = "ACCEPT"
 	// ToDest represents the flag used to specify the destination address in DNAT
 	ToDest = "--to-destination "
 	// Recent represents the sub-command recent that allows to dynamically create list of IP address to match against
@@ -57,17 +59,17 @@ type Rule map[string]string
 type FakeIPTables struct {
 	hasRandomFully bool
 	Lines          []byte
-	ipv6           bool
+	protocol       iptables.Protocol
 }
 
 // NewFake returns a no-op iptables.Interface
 func NewFake() *FakeIPTables {
-	return &FakeIPTables{}
+	return &FakeIPTables{protocol: iptables.ProtocolIPv4}
 }
 
-// NewIpv6Fake returns a no-op iptables.Interface with IsIPv6() == true
-func NewIpv6Fake() *FakeIPTables {
-	return &FakeIPTables{ipv6: true}
+// NewIPv6Fake returns a no-op iptables.Interface with IsIPv6() == true
+func NewIPv6Fake() *FakeIPTables {
+	return &FakeIPTables{protocol: iptables.ProtocolIPv6}
 }
 
 // SetHasRandomFully is part of iptables.Interface
@@ -91,6 +93,11 @@ func (*FakeIPTables) DeleteChain(table iptables.Table, chain iptables.Chain) err
 	return nil
 }
 
+// ChainExists is part of iptables.Interface
+func (*FakeIPTables) ChainExists(table iptables.Table, chain iptables.Chain) (bool, error) {
+	return true, nil
+}
+
 // EnsureRule is part of iptables.Interface
 func (*FakeIPTables) EnsureRule(position iptables.RulePosition, table iptables.Table, chain iptables.Chain, args ...string) (bool, error) {
 	return true, nil
@@ -101,9 +108,14 @@ func (*FakeIPTables) DeleteRule(table iptables.Table, chain iptables.Chain, args
 	return nil
 }
 
-// IsIpv6 is part of iptables.Interface
-func (f *FakeIPTables) IsIpv6() bool {
-	return f.ipv6
+// IsIPv6 is part of iptables.Interface
+func (f *FakeIPTables) IsIPv6() bool {
+	return f.protocol == iptables.ProtocolIPv6
+}
+
+// Protocol is part of iptables.Interface
+func (f *FakeIPTables) Protocol() iptables.Protocol {
+	return f.protocol
 }
 
 // Save is part of iptables.Interface
