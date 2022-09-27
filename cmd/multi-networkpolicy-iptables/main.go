@@ -24,6 +24,8 @@ import (
 	//"flag"
 	"log"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/k8snetworkplumbingwg/multi-networkpolicy-iptables/pkg/server"
@@ -69,7 +71,21 @@ func main() {
 	}
 	opts.AddFlags(cmd.Flags())
 
+	signalCh := make(chan os.Signal, 16)
+	signal.Notify(signalCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		for sig := range signalCh {
+			klog.V(1).Infof("Caught %v, stopping...", sig)
+			opts.Stop()
+		}
+	}()
+
+	klog.Infof("Executing ...")
+
 	if err := cmd.Execute(); err != nil {
+		klog.Infof("Execute failed: %v", err)
 		os.Exit(1)
 	}
+
+	klog.Infof("Exiting")
 }

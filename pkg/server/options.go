@@ -22,7 +22,6 @@ import (
 	"github.com/k8snetworkplumbingwg/multi-networkpolicy-iptables/pkg/controllers"
 	"github.com/spf13/pflag"
 
-	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog"
 	utilnode "k8s.io/kubernetes/pkg/util/node"
 )
@@ -39,6 +38,9 @@ type Options struct {
 	containerRuntimeEndpoint string
 	networkPlugins           []string
 	podIptables              string
+
+	// stopCh is used to stop the command
+	stopCh chan struct{}
 }
 
 // AddFlags adds command line flags into command
@@ -70,16 +72,20 @@ func (o *Options) Run() error {
 	klog.Infof("hostname: %v", hostname)
 	klog.Infof("container-runtime: %v", o.containerRuntime)
 
-	server.Run(hostname)
-
-	<-wait.NeverStop
+	server.Run(hostname, o.stopCh)
 
 	return nil
+}
+
+// Stop halts the command
+func (o *Options) Stop() {
+	o.stopCh <- struct{}{}
 }
 
 // NewOptions initializes Options
 func NewOptions() *Options {
 	return &Options{
 		containerRuntime: controllers.Cri,
+		stopCh:           make(chan struct{}),
 	}
 }
