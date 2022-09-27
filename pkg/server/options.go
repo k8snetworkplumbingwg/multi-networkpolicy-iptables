@@ -22,6 +22,7 @@ import (
 	"github.com/k8snetworkplumbingwg/multi-networkpolicy-iptables/pkg/controllers"
 	"github.com/spf13/pflag"
 
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog"
 	utilnode "k8s.io/kubernetes/pkg/util/node"
 )
@@ -38,8 +39,6 @@ type Options struct {
 	containerRuntimeEndpoint string
 	networkPlugins           []string
 	podIptables              string
-	// errCh is the channel that errors will be sent
-	errCh chan error
 }
 
 // AddFlags adds command line flags into command
@@ -59,8 +58,6 @@ func (o *Options) AddFlags(fs *pflag.FlagSet) {
 
 // Run invokes server
 func (o *Options) Run() error {
-	defer close(o.errCh)
-
 	server, err := NewServer(o)
 	if err != nil {
 		return err
@@ -73,23 +70,16 @@ func (o *Options) Run() error {
 	klog.Infof("hostname: %v", hostname)
 	klog.Infof("container-runtime: %v", o.containerRuntime)
 
-	go func() {
-		err := server.Run(hostname)
-		o.errCh <- err
-	}()
+	server.Run(hostname)
 
-	for {
-		err := <-o.errCh
-		if err != nil {
-			return err
-		}
-	}
+	<-wait.NeverStop
+
+	return nil
 }
 
 // NewOptions initializes Options
 func NewOptions() *Options {
 	return &Options{
 		containerRuntime: controllers.Cri,
-		errCh:            make(chan error),
 	}
 }

@@ -109,7 +109,7 @@ func (s *Server) RunPodConfig() {
 }
 
 // Run ...
-func (s *Server) Run(hostname string) error {
+func (s *Server) Run(hostname string) {
 	if s.Broadcaster != nil {
 		s.Broadcaster.StartRecordingToSink(
 			&v1core.EventSinkImpl{Interface: s.Client.CoreV1().Events("")})
@@ -140,8 +140,6 @@ func (s *Server) Run(hostname string) error {
 	netdefInformarFactory.Start(wait.NeverStop)
 
 	s.birthCry()
-
-	return nil
 }
 
 func (s *Server) setInitialized(value bool) {
