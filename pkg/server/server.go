@@ -262,8 +262,8 @@ func NewServer(o *Options) (*Server, error) {
 		Recorder:            recorder,
 		ConfigSyncPeriod:    15 * time.Minute,
 		NodeRef:             nodeRef,
-		ip4Tables:           utiliptables.New(exec.New(), utiliptables.ProtocolIpv4),
-		ip6Tables:           utiliptables.New(exec.New(), utiliptables.ProtocolIpv6),
+		ip4Tables:           utiliptables.New(exec.New(), utiliptables.ProtocolIPv4),
+		ip6Tables:           utiliptables.New(exec.New(), utiliptables.ProtocolIPv6),
 
 		policyChanges: policyChanges,
 		podChanges:    podChanges,

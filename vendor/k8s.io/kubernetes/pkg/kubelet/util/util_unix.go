@@ -28,7 +28,7 @@ import (
 	"path/filepath"
 
 	"golang.org/x/sys/unix"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 )
 
 const (
@@ -56,7 +56,7 @@ func CreateListener(endpoint string) (net.Listener, error) {
 		return nil, fmt.Errorf("error creating socket directory %q: %v", filepath.Dir(addr), err)
 	}
 
-	// Create the socket on a tempfile and move it to the destination socket to handle improprer cleanup
+	// Create the socket on a tempfile and move it to the destination socket to handle improper cleanup
 	file, err := ioutil.TempFile(filepath.Dir(addr), "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temporary file: %v", err)
@@ -100,7 +100,7 @@ func parseEndpointWithFallbackProtocol(endpoint string, fallbackProtocol string)
 		fallbackEndpoint := fallbackProtocol + "://" + endpoint
 		protocol, addr, err = parseEndpoint(fallbackEndpoint)
 		if err == nil {
-			klog.Warningf("Using %q as endpoint is deprecated, please consider using full url format %q.", endpoint, fallbackEndpoint)
+			klog.InfoS("Using this endpoint is deprecated, please consider using full URL format", "endpoint", endpoint, "URL", fallbackEndpoint)
 		}
 	}
 	return
