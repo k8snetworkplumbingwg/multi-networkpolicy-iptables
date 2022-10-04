@@ -38,8 +38,9 @@ type Options struct {
 	containerRuntimeEndpoint string
 	networkPlugins           []string
 	podIptables              string
-	// errCh is the channel that errors will be sent
-	errCh chan error
+
+	// stopCh is used to stop the command
+	stopCh chan struct{}
 }
 
 // AddFlags adds command line flags into command
@@ -59,8 +60,6 @@ func (o *Options) AddFlags(fs *pflag.FlagSet) {
 
 // Run invokes server
 func (o *Options) Run() error {
-	defer close(o.errCh)
-
 	server, err := NewServer(o)
 	if err != nil {
 		return err
@@ -73,23 +72,20 @@ func (o *Options) Run() error {
 	klog.Infof("hostname: %v", hostname)
 	klog.Infof("container-runtime: %v", o.containerRuntime)
 
-	go func() {
-		err := server.Run(hostname)
-		o.errCh <- err
-	}()
+	server.Run(hostname, o.stopCh)
 
-	for {
-		err := <-o.errCh
-		if err != nil {
-			return err
-		}
-	}
+	return nil
+}
+
+// Stop halts the command
+func (o *Options) Stop() {
+	o.stopCh <- struct{}{}
 }
 
 // NewOptions initializes Options
 func NewOptions() *Options {
 	return &Options{
 		containerRuntime: controllers.Cri,
-		errCh:            make(chan error),
+		stopCh:           make(chan struct{}),
 	}
 }
