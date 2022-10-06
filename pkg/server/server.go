@@ -59,6 +59,8 @@ import (
 	"k8s.io/utils/exec"
 )
 
+const defaultSyncPeriod = 30
+
 // Server structure defines data for server
 type Server struct {
 	podChanges          *controllers.PodChangeTracker
@@ -239,7 +241,7 @@ func NewServer(o *Options) (*Server, error) {
 		Namespace: "",
 	}
 
-	syncPeriod := 30 * time.Second
+	syncPeriod := time.Duration(o.syncPeriod) * time.Second
 	minSyncPeriod := 0 * time.Second
 	burstSyncs := 2
 
