@@ -74,7 +74,7 @@ func newIptableBuffer() *iptableBuffer {
 }
 
 func (ipt *iptableBuffer) Init(iptables utiliptables.Interface) {
-	ipt.isIPv6 = iptables.IsIpv6()
+	ipt.isIPv6 = iptables.IsIPv6()
 
 	tmpbuf := bytes.NewBuffer(nil)
 	tmpbuf.Reset()

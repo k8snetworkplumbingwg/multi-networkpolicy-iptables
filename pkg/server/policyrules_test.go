@@ -86,7 +86,7 @@ func NewFakeServer(hostname string) *Server {
 		ConfigSyncPeriod:    15 * time.Minute,
 		NodeRef:             nodeRef,
 		ip4Tables:           fakeiptables.NewFake(),
-		ip6Tables:           fakeiptables.NewIpv6Fake(),
+		ip6Tables:           fakeiptables.NewIPv6Fake(),
 
 		hostPrefix:    hostPrefix,
 		policyChanges: policyChanges,
@@ -915,7 +915,7 @@ COMMIT
 				})
 			AddPod(s, pod2)
 
-			ipt := fakeiptables.NewIpv6Fake()
+			ipt := fakeiptables.NewIPv6Fake()
 			buf := newIptableBuffer()
 			buf.Init(ipt)
 
@@ -1013,7 +1013,7 @@ COMMIT
 				})
 			AddPod(s, pod2)
 
-			ipt := fakeiptables.NewIpv6Fake()
+			ipt := fakeiptables.NewIPv6Fake()
 			buf := newIptableBuffer()
 			buf.Init(ipt)
 
