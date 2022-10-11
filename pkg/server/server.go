@@ -505,7 +505,11 @@ func (s *Server) backupIptablesRules(pod *v1.Pod, suffix string, iptables utilip
 			return err
 		}
 	}
-	file, err := os.Create(fmt.Sprintf("%s/%s.iptables", podIptables, suffix))
+	fileExt := "iptables"
+	if iptables.IsIPv6() {
+		fileExt = "ip6tables"
+	}
+	file, err := os.Create(fmt.Sprintf("%s/%s.%s", podIptables, suffix, fileExt))
 	defer file.Close()
 	var buffer bytes.Buffer
 
@@ -527,12 +531,12 @@ const (
 func (s *Server) generatePolicyRulesForPod(pod *v1.Pod, podInfo *controllers.PodInfo) error {
 	err := s.generatePolicyRulesForPodAndFamily(pod, podInfo, s.ip4Tables)
 	if err != nil {
-		return fmt.Errorf("can't generate iptables ipv4 for pod [%s]: %w", podNamespacedName(pod), err)
+		return fmt.Errorf("can't generate iptables for pod [%s]: %w", podNamespacedName(pod), err)
 	}
 
 	err = s.generatePolicyRulesForPodAndFamily(pod, podInfo, s.ip6Tables)
 	if err != nil {
-		return fmt.Errorf("can't generate iptables ipv6 for pod [%s]: %w", podNamespacedName(pod), err)
+		return fmt.Errorf("can't generate ip6tables for pod [%s]: %w", podNamespacedName(pod), err)
 	}
 
 	return nil
@@ -636,8 +640,13 @@ func (s *Server) generatePolicyRulesForPodAndFamily(pod *v1.Pod, podInfo *contro
 
 	/* store generated iptables rules if podIptables is enabled */
 	if s.Options.podIptables != "" {
-		filePath := fmt.Sprintf("%s/%s/networkpolicy.iptables", s.Options.podIptables, pod.UID)
-		iptableBuffer.SaveRules(filePath)
+		if iptables.IsIPv6() {
+			filePath := fmt.Sprintf("%s/%s/networkpolicy.ip6tables", s.Options.podIptables, pod.UID)
+			iptableBuffer.SaveRules(filePath)
+		} else {
+			filePath := fmt.Sprintf("%s/%s/networkpolicy.iptables", s.Options.podIptables, pod.UID)
+			iptableBuffer.SaveRules(filePath)
+		}
 	}
 
 	if err := iptableBuffer.SyncRules(iptables); err != nil {
@@ -645,11 +654,7 @@ func (s *Server) generatePolicyRulesForPodAndFamily(pod *v1.Pod, podInfo *contro
 		return err
 	}
 
-	if iptables.IsIpv6() {
-		s.backupIptablesRules(pod, "current-ipv6", iptables)
-	} else {
-		s.backupIptablesRules(pod, "current-ipv4", iptables)
-	}
+	s.backupIptablesRules(pod, "current", iptables)
 
 	return nil
 }
