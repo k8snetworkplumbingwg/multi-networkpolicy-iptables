@@ -86,15 +86,17 @@ spec:
       containers:
       - name: multi-networkpolicy
         # crio support requires multus:latest for now. support 3.3 or later.
-        image: ghcr.io/k8snetworkplumbingwg/multi-networkpolicy-iptables:snapshot-amd64
+        image: localhost:5000/multus-networkpolicy-iptables:e2e
         imagePullPolicy: Always
         command: ["/usr/bin/multi-networkpolicy-iptables"]
         args:
         - "--host-prefix=/host"
         # change this if runtime is different that crio default
-        - "--container-runtime-endpoint=/run/crio/crio.sock"
+        - "--container-runtime-endpoint=/run/containerd/containerd.sock"
         # uncomment this if you want to store iptables rules
         - "--pod-iptables=/var/lib/multi-networkpolicy/iptables"
+        # (e2e test only) enshorten sync period to fast sync
+        - "--sync-period=1"
         resources:
           requests:
             cpu: "100m"
@@ -105,7 +107,7 @@ spec:
         securityContext:
           privileged: true
           capabilities:
-            add: ["SYS_ADMIN", "NET_ADMIN"]
+            add: ["SYS_ADMIN", "SYS_NET_ADMIN"]
         volumeMounts:
         - name: host
           mountPath: /host
