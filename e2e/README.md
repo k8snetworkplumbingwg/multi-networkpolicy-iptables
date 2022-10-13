@@ -3,7 +3,7 @@
 
 ### How to test e2e
 
-This requires [Bats](https://github.com/bats-core/bats-core) for test runner. Please instal bats (e.g. dnf, apt and so on).
+This requires [Bats](https://github.com/bats-core/bats-core) for test runner. Please install bats (e.g. dnf, apt and so on).
 
 ```
 $ git clone https://github.com/k8snetworkplumbingwg/multi-networkpolicy-iptables
@@ -19,4 +19,12 @@ $ ./tests/simple-v4-ingress.bats
 $ kind delete cluster
 $ docker kill kind-registry
 $ docker rm kind-registry
+```
+
+### How to deploy server image with new changes
+
+After making changes to the code, it is possible to update the server Daemonset image with the script:
+
+```
+./update_image_on_cluster.sh
 ```
