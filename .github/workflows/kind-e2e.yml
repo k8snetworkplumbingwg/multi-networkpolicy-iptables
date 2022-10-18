@@ -31,3 +31,5 @@ jobs:
           bats ./tests/simple-v4-ingress.bats
           bats ./tests/simple-v4-egress.bats
           bats ./tests/stacked.bats
+          # this should be validated once the v6 issue is fixed.
+          #bats ./v6work/simple-v6-ingress.bats
