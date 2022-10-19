@@ -24,7 +24,7 @@ jobs:
         working-directory: ./e2e
         run: ./setup_cluster.sh
 
-      - name: Test: simple
+      - name: "Test: simple"
         working-directory: ./e2e
         run: |
           export TERM=dumb
