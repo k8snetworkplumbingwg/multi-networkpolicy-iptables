@@ -937,6 +937,7 @@ COMMIT
 -A MULTI-INGRESS -p icmpv6 --icmpv6-type neighbor-advertisement -j ACCEPT
 -A MULTI-INGRESS -p icmpv6 --icmpv6-type router-advertisement -j ACCEPT
 -A MULTI-INGRESS -p icmpv6 --icmpv6-type redirect -j ACCEPT
+-A MULTI-INGRESS -m udp -p udp --dport 546 -d fe80::/64 -j ACCEPT
 -A MULTI-INGRESS -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 -A MULTI-INGRESS -m comment --comment "policy:ingressPolicies1 net-attach-def:testns1/net-attach1" -i net1 -j MULTI-0-INGRESS
 -A MULTI-INGRESS -m mark --mark 0x30000/0x30000 -j RETURN
@@ -946,6 +947,7 @@ COMMIT
 -A MULTI-EGRESS -p icmpv6 --icmpv6-type neighbor-solicitation -j ACCEPT
 -A MULTI-EGRESS -p icmpv6 --icmpv6-type neighbor-advertisement -j ACCEPT
 -A MULTI-EGRESS -p icmpv6 --icmpv6-type router-solicitation -j ACCEPT
+-A MULTI-EGRESS -m udp -p udp --dport 547 -d ff02::1:2 -j ACCEPT
 -A MULTI-EGRESS -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 -A MULTI-EGRESS -m comment --comment "policy:ingressPolicies1 net-attach-def:testns1/net-attach1" -o net1 -j MULTI-0-EGRESS
 -A MULTI-EGRESS -m mark --mark 0x30000/0x30000 -j RETURN
@@ -1042,6 +1044,7 @@ COMMIT
 -A MULTI-INGRESS -p icmpv6 --icmpv6-type neighbor-advertisement -j ACCEPT
 -A MULTI-INGRESS -p icmpv6 --icmpv6-type router-advertisement -j ACCEPT
 -A MULTI-INGRESS -p icmpv6 --icmpv6-type redirect -j ACCEPT
+-A MULTI-INGRESS -m udp -p udp --dport 546 -d fe80::/64 -j ACCEPT
 -A MULTI-INGRESS -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 -A MULTI-INGRESS -m comment --comment "policy:ingressPolicies1 net-attach-def:testns1/net-attach1" -i net1 -j MULTI-0-INGRESS
 -A MULTI-INGRESS -m mark --mark 0x30000/0x30000 -j RETURN
@@ -1051,6 +1054,7 @@ COMMIT
 -A MULTI-EGRESS -p icmpv6 --icmpv6-type neighbor-solicitation -j ACCEPT
 -A MULTI-EGRESS -p icmpv6 --icmpv6-type neighbor-advertisement -j ACCEPT
 -A MULTI-EGRESS -p icmpv6 --icmpv6-type router-solicitation -j ACCEPT
+-A MULTI-EGRESS -m udp -p udp --dport 547 -d ff02::1:2 -j ACCEPT
 -A MULTI-EGRESS -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 -A MULTI-EGRESS -m comment --comment "policy:ingressPolicies1 net-attach-def:testns1/net-attach1" -o net1 -j MULTI-0-EGRESS
 -A MULTI-EGRESS -m mark --mark 0x30000/0x30000 -j RETURN

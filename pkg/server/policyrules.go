@@ -175,6 +175,9 @@ func (ipt *iptableBuffer) renderIngress(s *Server, podInfo *controllers.PodInfo,
 			writeLine(ipt.policyIndex, "-A", ingressChain, "-p icmpv6 --icmpv6-type neighbor-advertisement -j ACCEPT")
 			writeLine(ipt.policyIndex, "-A", ingressChain, "-p icmpv6 --icmpv6-type router-advertisement -j ACCEPT")
 			writeLine(ipt.policyIndex, "-A", ingressChain, "-p icmpv6 --icmpv6-type redirect -j ACCEPT")
+
+			// Allow DHCPv6 incoming packets (RFC8415)
+			writeLine(ipt.policyIndex, "-A", ingressChain, "-m udp -p udp --dport 546 -d fe80::/64 -j ACCEPT")
 		}
 		writeLine(ipt.policyIndex, "-A", ingressChain, "-m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT")
 	}
@@ -366,6 +369,9 @@ func (ipt *iptableBuffer) renderEgress(s *Server, podInfo *controllers.PodInfo, 
 			writeLine(ipt.policyIndex, "-A", egressChain, "-p icmpv6 --icmpv6-type neighbor-solicitation -j ACCEPT")
 			writeLine(ipt.policyIndex, "-A", egressChain, "-p icmpv6 --icmpv6-type neighbor-advertisement -j ACCEPT")
 			writeLine(ipt.policyIndex, "-A", egressChain, "-p icmpv6 --icmpv6-type router-solicitation -j ACCEPT")
+
+			// Allow DHCPv6 outgoing packets (RFC8415)
+			writeLine(ipt.policyIndex, "-A", egressChain, "-m udp -p udp --dport 547 -d ff02::1:2 -j ACCEPT")
 		}
 
 		writeLine(ipt.policyIndex, "-A", egressChain, "-m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT")
