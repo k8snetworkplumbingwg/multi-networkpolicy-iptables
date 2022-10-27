@@ -222,8 +222,13 @@ var _ = Describe("policyrules testing", func() {
 
 		// verify buf initialized at init
 		buf.Init(ipt)
-		filterChains := []byte("*filter\n:MULTI-INGRESS - [0:0]\n:MULTI-EGRESS - [0:0]\n")
-		Expect(buf.filterChains.Bytes()).To(Equal(filterChains))
+		filterChains := `*filter
+:MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
+:MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
+`
+		Expect(buf.filterChains.String()).To(Equal(filterChains))
 		emptyBytes := []byte("")
 		Expect(buf.policyIndex.Bytes()).To(Equal(emptyBytes))
 		Expect(buf.ingressPorts.Bytes()).To(Equal(emptyBytes))
@@ -233,14 +238,20 @@ var _ = Describe("policyrules testing", func() {
 
 		// finalize buf and verify rules buffer
 		buf.FinalizeRules()
-		filterRules := []byte("*filter\n:MULTI-INGRESS - [0:0]\n:MULTI-EGRESS - [0:0]\nCOMMIT\n")
-		Expect(buf.filterRules.Bytes()).To(Equal(filterRules))
+		filterRules := `*filter
+:MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
+:MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
+COMMIT
+`
+		Expect(buf.filterRules.String()).To(Equal(filterRules))
 
 		// sync and verify iptable
 		Expect(buf.SyncRules(ipt)).To(BeNil())
 		iptableRules := bytes.NewBuffer(nil)
 		ipt.SaveInto(utiliptables.TableFilter, iptableRules)
-		Expect(iptableRules.Bytes()).To(Equal(filterRules))
+		Expect(iptableRules.String()).To(Equal(filterRules))
 
 		// reset and verify empty
 		buf.Reset()
@@ -318,11 +329,13 @@ var _ = Describe("policyrules testing", func() {
 		finalizedRules := []byte(
 			`*filter
 :MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
 :MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
 :MULTI-0-INGRESS - [0:0]
 :MULTI-0-INGRESS-0-PORTS - [0:0]
 :MULTI-0-INGRESS-0-FROM - [0:0]
--A MULTI-INGRESS -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-INGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 -A MULTI-INGRESS -m comment --comment "policy:ingressPolicies1 net-attach-def:testns1/net-attach1" -i net1 -j MULTI-0-INGRESS
 -A MULTI-INGRESS -m mark --mark 0x30000/0x30000 -j RETURN
 -A MULTI-0-INGRESS -j MARK --set-xmark 0x0/0x30000
@@ -417,11 +430,13 @@ COMMIT
 		finalizedRules := []byte(
 			`*filter
 :MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
 :MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
 :MULTI-0-INGRESS - [0:0]
 :MULTI-0-INGRESS-0-PORTS - [0:0]
 :MULTI-0-INGRESS-0-FROM - [0:0]
--A MULTI-INGRESS -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-INGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 -A MULTI-INGRESS -m comment --comment "policy:ingressPolicies1 net-attach-def:testns1/net-attach1" -i net1 -j MULTI-0-INGRESS
 -A MULTI-INGRESS -m mark --mark 0x30000/0x30000 -j RETURN
 -A MULTI-0-INGRESS -j MARK --set-xmark 0x0/0x30000
@@ -503,11 +518,13 @@ COMMIT
 		finalizedRules := []byte(
 			`*filter
 :MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
 :MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
 :MULTI-0-INGRESS - [0:0]
 :MULTI-0-INGRESS-0-PORTS - [0:0]
 :MULTI-0-INGRESS-0-FROM - [0:0]
--A MULTI-INGRESS -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-INGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 -A MULTI-INGRESS -m comment --comment "policy:ingressPolicies1 net-attach-def:testns1/net-attach1" -i net1 -j MULTI-0-INGRESS
 -A MULTI-INGRESS -m mark --mark 0x30000/0x30000 -j RETURN
 -A MULTI-0-INGRESS -j MARK --set-xmark 0x0/0x30000
@@ -587,11 +604,13 @@ COMMIT
 		finalizedRules := []byte(
 			`*filter
 :MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
 :MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
 :MULTI-0-INGRESS - [0:0]
 :MULTI-0-INGRESS-0-PORTS - [0:0]
 :MULTI-0-INGRESS-0-FROM - [0:0]
--A MULTI-INGRESS -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-INGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 -A MULTI-INGRESS -m comment --comment "policy:ingressPolicies1 net-attach-def:default/net-attach1" -i net1 -j MULTI-0-INGRESS
 -A MULTI-INGRESS -m mark --mark 0x30000/0x30000 -j RETURN
 -A MULTI-0-INGRESS -j MARK --set-xmark 0x0/0x30000
@@ -672,11 +691,13 @@ COMMIT
 		finalizedRules := []byte(
 			`*filter
 :MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
 :MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
 :MULTI-0-EGRESS - [0:0]
 :MULTI-0-EGRESS-0-PORTS - [0:0]
 :MULTI-0-EGRESS-0-TO - [0:0]
--A MULTI-EGRESS -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-EGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 -A MULTI-EGRESS -m comment --comment "policy:EgressPolicies1 net-attach-def:testns1/net-attach1" -o net1 -j MULTI-0-EGRESS
 -A MULTI-EGRESS -m mark --mark 0x30000/0x30000 -j RETURN
 -A MULTI-0-EGRESS -j MARK --set-xmark 0x0/0x30000
@@ -771,11 +792,13 @@ COMMIT
 		finalizedRules := []byte(
 			`*filter
 :MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
 :MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
 :MULTI-0-EGRESS - [0:0]
 :MULTI-0-EGRESS-0-PORTS - [0:0]
 :MULTI-0-EGRESS-0-TO - [0:0]
--A MULTI-EGRESS -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-EGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 -A MULTI-EGRESS -m comment --comment "policy:EgressPolicies1 net-attach-def:testns1/net-attach1" -o net1 -j MULTI-0-EGRESS
 -A MULTI-EGRESS -m mark --mark 0x30000/0x30000 -j RETURN
 -A MULTI-0-EGRESS -j MARK --set-xmark 0x0/0x30000
@@ -926,20 +949,31 @@ COMMIT
 
 			expectedRules := `*filter
 :MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
 :MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
 :MULTI-0-INGRESS - [0:0]
 :MULTI-0-INGRESS-0-PORTS - [0:0]
 :MULTI-0-INGRESS-0-FROM - [0:0]
 :MULTI-0-EGRESS - [0:0]
 :MULTI-0-EGRESS-0-PORTS - [0:0]
 :MULTI-0-EGRESS-0-TO - [0:0]
--A MULTI-INGRESS -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-INGRESS-COMMON -p icmpv6 --icmpv6-type neighbor-solicitation -j ACCEPT
+-A MULTI-INGRESS-COMMON -p icmpv6 --icmpv6-type neighbor-advertisement -j ACCEPT
+-A MULTI-INGRESS-COMMON -p icmpv6 --icmpv6-type router-advertisement -j ACCEPT
+-A MULTI-INGRESS-COMMON -p icmpv6 --icmpv6-type redirect -j ACCEPT
+-A MULTI-INGRESS-COMMON -m udp -p udp --dport 546 -d fe80::/64 -j ACCEPT
+-A MULTI-INGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 -A MULTI-INGRESS -m comment --comment "policy:ingressPolicies1 net-attach-def:testns1/net-attach1" -i net1 -j MULTI-0-INGRESS
 -A MULTI-INGRESS -m mark --mark 0x30000/0x30000 -j RETURN
 -A MULTI-0-INGRESS -j MARK --set-xmark 0x0/0x30000
 -A MULTI-0-INGRESS -j MULTI-0-INGRESS-0-PORTS
 -A MULTI-0-INGRESS -j MULTI-0-INGRESS-0-FROM
--A MULTI-EGRESS -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-EGRESS-COMMON -p icmpv6 --icmpv6-type neighbor-solicitation -j ACCEPT
+-A MULTI-EGRESS-COMMON -p icmpv6 --icmpv6-type neighbor-advertisement -j ACCEPT
+-A MULTI-EGRESS-COMMON -p icmpv6 --icmpv6-type router-solicitation -j ACCEPT
+-A MULTI-EGRESS-COMMON -m udp -p udp --dport 547 -d ff02::1:2 -j ACCEPT
+-A MULTI-EGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 -A MULTI-EGRESS -m comment --comment "policy:ingressPolicies1 net-attach-def:testns1/net-attach1" -o net1 -j MULTI-0-EGRESS
 -A MULTI-EGRESS -m mark --mark 0x30000/0x30000 -j RETURN
 -A MULTI-0-EGRESS -j MARK --set-xmark 0x0/0x30000
@@ -952,7 +986,7 @@ COMMIT
 COMMIT
 `
 
-			Expect(buf.filterRules.String()).To(Equal(expectedRules))
+			Expect(buf.filterRules.String()).To(Equal(expectedRules), buf.filterRules.String())
 		})
 
 		It("shoud manage dual stack networks", func() {
@@ -1012,6 +1046,8 @@ COMMIT
 					"foobar": "enabled",
 				})
 			AddPod(s, pod2)
+			_, err = s.podMap.GetPodInfo(pod2)
+			Expect(err).To(BeNil())
 
 			ipt := fakeiptables.NewIPv6Fake()
 			buf := newIptableBuffer()
@@ -1024,20 +1060,31 @@ COMMIT
 
 			expectedRules := `*filter
 :MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
 :MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
 :MULTI-0-INGRESS - [0:0]
 :MULTI-0-INGRESS-0-PORTS - [0:0]
 :MULTI-0-INGRESS-0-FROM - [0:0]
 :MULTI-0-EGRESS - [0:0]
 :MULTI-0-EGRESS-0-PORTS - [0:0]
 :MULTI-0-EGRESS-0-TO - [0:0]
--A MULTI-INGRESS -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-INGRESS-COMMON -p icmpv6 --icmpv6-type neighbor-solicitation -j ACCEPT
+-A MULTI-INGRESS-COMMON -p icmpv6 --icmpv6-type neighbor-advertisement -j ACCEPT
+-A MULTI-INGRESS-COMMON -p icmpv6 --icmpv6-type router-advertisement -j ACCEPT
+-A MULTI-INGRESS-COMMON -p icmpv6 --icmpv6-type redirect -j ACCEPT
+-A MULTI-INGRESS-COMMON -m udp -p udp --dport 546 -d fe80::/64 -j ACCEPT
+-A MULTI-INGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 -A MULTI-INGRESS -m comment --comment "policy:ingressPolicies1 net-attach-def:testns1/net-attach1" -i net1 -j MULTI-0-INGRESS
 -A MULTI-INGRESS -m mark --mark 0x30000/0x30000 -j RETURN
 -A MULTI-0-INGRESS -j MARK --set-xmark 0x0/0x30000
 -A MULTI-0-INGRESS -j MULTI-0-INGRESS-0-PORTS
 -A MULTI-0-INGRESS -j MULTI-0-INGRESS-0-FROM
--A MULTI-EGRESS -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-EGRESS-COMMON -p icmpv6 --icmpv6-type neighbor-solicitation -j ACCEPT
+-A MULTI-EGRESS-COMMON -p icmpv6 --icmpv6-type neighbor-advertisement -j ACCEPT
+-A MULTI-EGRESS-COMMON -p icmpv6 --icmpv6-type router-solicitation -j ACCEPT
+-A MULTI-EGRESS-COMMON -m udp -p udp --dport 547 -d ff02::1:2 -j ACCEPT
+-A MULTI-EGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 -A MULTI-EGRESS -m comment --comment "policy:ingressPolicies1 net-attach-def:testns1/net-attach1" -o net1 -j MULTI-0-EGRESS
 -A MULTI-EGRESS -m mark --mark 0x30000/0x30000 -j RETURN
 -A MULTI-0-EGRESS -j MARK --set-xmark 0x0/0x30000
@@ -1065,7 +1112,12 @@ var _ = Describe("policyrules testing - invalid case", func() {
 
 		// verify buf initialized at init
 		buf.Init(ipt)
-		filterChains := []byte("*filter\n:MULTI-INGRESS - [0:0]\n:MULTI-EGRESS - [0:0]\n")
+		filterChains := []byte(`*filter
+:MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
+:MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
+`)
 		Expect(buf.filterChains.Bytes()).To(Equal(filterChains))
 		emptyBytes := []byte("")
 		Expect(buf.policyIndex.Bytes()).To(Equal(emptyBytes))
@@ -1076,7 +1128,13 @@ var _ = Describe("policyrules testing - invalid case", func() {
 
 		// finalize buf and verify rules buffer
 		buf.FinalizeRules()
-		filterRules := []byte("*filter\n:MULTI-INGRESS - [0:0]\n:MULTI-EGRESS - [0:0]\nCOMMIT\n")
+		filterRules := []byte(`*filter
+:MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
+:MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
+COMMIT
+`)
 		Expect(buf.filterRules.Bytes()).To(Equal(filterRules))
 
 		// sync and verify iptable
@@ -1155,11 +1213,13 @@ var _ = Describe("policyrules testing - invalid case", func() {
 		finalizedRules := []byte(
 			`*filter
 :MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
 :MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
 :MULTI-0-INGRESS - [0:0]
 :MULTI-0-INGRESS-0-PORTS - [0:0]
 :MULTI-0-INGRESS-0-FROM - [0:0]
--A MULTI-INGRESS -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-INGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 -A MULTI-0-INGRESS -j MARK --set-xmark 0x0/0x30000
 -A MULTI-0-INGRESS -j MULTI-0-INGRESS-0-PORTS
 -A MULTI-0-INGRESS -j MULTI-0-INGRESS-0-FROM
@@ -1244,11 +1304,13 @@ COMMIT
 		finalizedRules := []byte(
 			`*filter
 :MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
 :MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
 :MULTI-0-INGRESS - [0:0]
 :MULTI-0-INGRESS-0-PORTS - [0:0]
 :MULTI-0-INGRESS-0-FROM - [0:0]
--A MULTI-INGRESS -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-INGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 -A MULTI-0-INGRESS -j MARK --set-xmark 0x0/0x30000
 -A MULTI-0-INGRESS -j MULTI-0-INGRESS-0-PORTS
 -A MULTI-0-INGRESS -j MULTI-0-INGRESS-0-FROM
@@ -1320,11 +1382,13 @@ COMMIT
 		finalizedRules := []byte(
 			`*filter
 :MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
 :MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
 :MULTI-0-EGRESS - [0:0]
 :MULTI-0-EGRESS-0-PORTS - [0:0]
 :MULTI-0-EGRESS-0-TO - [0:0]
--A MULTI-EGRESS -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-EGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 -A MULTI-0-EGRESS -j MARK --set-xmark 0x0/0x30000
 -A MULTI-0-EGRESS -j MULTI-0-EGRESS-0-PORTS
 -A MULTI-0-EGRESS -j MULTI-0-EGRESS-0-TO
@@ -1409,11 +1473,13 @@ COMMIT
 		finalizedRules := []byte(
 			`*filter
 :MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
 :MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
 :MULTI-0-EGRESS - [0:0]
 :MULTI-0-EGRESS-0-PORTS - [0:0]
 :MULTI-0-EGRESS-0-TO - [0:0]
--A MULTI-EGRESS -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-EGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 -A MULTI-0-EGRESS -j MARK --set-xmark 0x0/0x30000
 -A MULTI-0-EGRESS -j MULTI-0-EGRESS-0-PORTS
 -A MULTI-0-EGRESS -j MULTI-0-EGRESS-0-TO

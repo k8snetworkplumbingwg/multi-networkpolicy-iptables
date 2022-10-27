@@ -96,7 +96,7 @@ func (ipt *iptableBuffer) Init(iptables utiliptables.Interface) {
 
 	// Make sure we keep stats for the top-level chains, if they existed
 	// (which most should have because we created them above).
-	for _, chainName := range []utiliptables.Chain{ingressChain, egressChain} {
+	for _, chainName := range []utiliptables.Chain{ingressChain, ingressCommonChain, egressChain, egressCommonChain} {
 		ipt.activeChain[chainName] = true
 		if chain, ok := ipt.currentFilter[chainName]; ok {
 			writeBytesLine(ipt.filterChains, chain)
@@ -169,8 +169,19 @@ func (ipt *iptableBuffer) renderIngress(s *Server, podInfo *controllers.PodInfo,
 
 	ingresses := policy.Spec.Ingress
 	if idx == 0 {
-		writeLine(ipt.policyIndex, "-A", ingressChain, "-m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT")
+		if ipt.isIPv6 {
+			// Allow incoming ICMPv6 traffic to let Neighbor Discovery Protocol work (RFC4861)
+			writeLine(ipt.policyIndex, "-A", ingressCommonChain, "-p icmpv6 --icmpv6-type neighbor-solicitation -j ACCEPT")
+			writeLine(ipt.policyIndex, "-A", ingressCommonChain, "-p icmpv6 --icmpv6-type neighbor-advertisement -j ACCEPT")
+			writeLine(ipt.policyIndex, "-A", ingressCommonChain, "-p icmpv6 --icmpv6-type router-advertisement -j ACCEPT")
+			writeLine(ipt.policyIndex, "-A", ingressCommonChain, "-p icmpv6 --icmpv6-type redirect -j ACCEPT")
+
+			// Allow DHCPv6 incoming packets (RFC8415)
+			writeLine(ipt.policyIndex, "-A", ingressCommonChain, "-m udp -p udp --dport 546 -d fe80::/64 -j ACCEPT")
+		}
+		writeLine(ipt.policyIndex, "-A", ingressCommonChain, "-m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT")
 	}
+
 	for _, podIntf := range podInfo.Interfaces {
 		if podIntf.CheckPolicyNetwork(policyNetworks) {
 			comment := fmt.Sprintf("\"policy:%s net-attach-def:%s\"", policy.Name, podIntf.NetattachName)
@@ -354,8 +365,19 @@ func (ipt *iptableBuffer) renderEgress(s *Server, podInfo *controllers.PodInfo, 
 
 	egresses := policy.Spec.Egress
 	if idx == 0 {
-		writeLine(ipt.policyIndex, "-A", egressChain, "-m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT")
+		if ipt.isIPv6 {
+			// Allow outgoing ICMPv6 traffic to let Neighbor Discovery Protocol work
+			writeLine(ipt.policyIndex, "-A", egressCommonChain, "-p icmpv6 --icmpv6-type neighbor-solicitation -j ACCEPT")
+			writeLine(ipt.policyIndex, "-A", egressCommonChain, "-p icmpv6 --icmpv6-type neighbor-advertisement -j ACCEPT")
+			writeLine(ipt.policyIndex, "-A", egressCommonChain, "-p icmpv6 --icmpv6-type router-solicitation -j ACCEPT")
+
+			// Allow DHCPv6 outgoing packets (RFC8415)
+			writeLine(ipt.policyIndex, "-A", egressCommonChain, "-m udp -p udp --dport 547 -d ff02::1:2 -j ACCEPT")
+		}
+
+		writeLine(ipt.policyIndex, "-A", egressCommonChain, "-m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT")
 	}
+
 	for _, podIntf := range podInfo.Interfaces {
 		if podIntf.CheckPolicyNetwork(policyNetworks) {
 			comment := fmt.Sprintf("\"policy:%s net-attach-def:%s\"", policy.Name, podIntf.NetattachName)

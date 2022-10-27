@@ -35,6 +35,15 @@ serviceaccount/multi-networkpolicy created
 daemonset.apps/multi-networkpolicy-ds-amd64 created
 ```
 
+## Requirements
+
+This project leverages `iptables` and `ip6tables` commands to do its work. Hence, `ip_tables` and `ip6_tables` kernel modules
+need to be loaded on the container host:
+
+```
+# modprobe ip_tables ip6_tables
+```
+
 ## Demo
 
 (TBD)
