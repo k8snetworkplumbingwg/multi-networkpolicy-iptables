@@ -293,7 +293,9 @@ func NewServer(o *Options) (*Server, error) {
 // Sync ...
 func (s *Server) Sync() {
 	klog.V(4).Infof("Sync Done!")
-	s.syncRunner.Run()
+	if s.syncRunner != nil {
+		s.syncRunner.Run()
+	}
 }
 
 // AllSynced ...
@@ -524,8 +526,10 @@ func (s *Server) backupIptablesRules(pod *v1.Pod, suffix string, iptables utilip
 }
 
 const (
-	ingressChain = "MULTI-INGRESS"
-	egressChain  = "MULTI-EGRESS"
+	ingressChain       = "MULTI-INGRESS"
+	egressChain        = "MULTI-EGRESS"
+	ingressCommonChain = "MULTI-INGRESS-COMMON"
+	egressCommonChain  = "MULTI-EGRESS-COMMON"
 )
 
 func (s *Server) generatePolicyRulesForPod(pod *v1.Pod, podInfo *controllers.PodInfo) error {
@@ -544,22 +548,32 @@ func (s *Server) generatePolicyRulesForPod(pod *v1.Pod, podInfo *controllers.Pod
 
 func (s *Server) generatePolicyRulesForPodAndFamily(pod *v1.Pod, podInfo *controllers.PodInfo, iptables utiliptables.Interface) error {
 	klog.V(8).Infof("Generate rules for Pod: %v/%v\n", podInfo.Namespace, podInfo.Name)
-	// -t filter -N MULTI-POLICY-INGRESS # ensure chain
+	// -t filter -N MULTI-INGRESS # ensure chain
 	iptables.EnsureChain(utiliptables.TableFilter, ingressChain)
-	// -t filter -N MULTI-POLICY-EGRESS # ensure chain
+	// -t filter -N MULTI-EGRESS # ensure chain
 	iptables.EnsureChain(utiliptables.TableFilter, egressChain)
+	// -t filter -N MULTI-INGRESS-COMMON # ensure chain
+	iptables.EnsureChain(utiliptables.TableFilter, ingressCommonChain)
+	// -t filter -N MULTI-EGRESS-COMMON # ensure chain
+	iptables.EnsureChain(utiliptables.TableFilter, egressCommonChain)
 
 	for _, multiIF := range podInfo.Interfaces {
-		//    -A INPUT -j MULTI-POLICY-INGRESS # ensure rules
+		//    -A INPUT -j MULTI-INGRESS # ensure rules
 		iptables.EnsureRule(
 			utiliptables.Prepend, utiliptables.TableFilter, "INPUT", "-i", multiIF.InterfaceName, "-j", ingressChain)
-		//    -A OUTPUT -j MULTI-POLICY-EGRESS # ensure rules
+		//    -A OUTPUT -j MULTI-EGRESS # ensure rules
 		iptables.EnsureRule(
 			utiliptables.Prepend, utiliptables.TableFilter, "OUTPUT", "-o", multiIF.InterfaceName, "-j", egressChain)
 		//    -A PREROUTING -i net1 -j RETURN # ensure rules
 		iptables.EnsureRule(
 			utiliptables.Prepend, utiliptables.TableNAT, "PREROUTING", "-i", multiIF.InterfaceName, "-j", "RETURN")
 	}
+	//    -A MULTI-INGRESS -j MULTI-INGRESS-COMMON # ensure rules
+	iptables.EnsureRule(
+		utiliptables.Prepend, utiliptables.TableFilter, ingressChain, "-j", ingressCommonChain)
+	//    -A MULTI-EGRESS -j MULTI-EGRESS-COMMON # ensure rules
+	iptables.EnsureRule(
+		utiliptables.Prepend, utiliptables.TableFilter, egressChain, "-j", egressCommonChain)
 
 	iptableBuffer := newIptableBuffer()
 	iptableBuffer.Init(iptables)
