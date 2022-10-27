@@ -19,6 +19,9 @@ package server
 import (
 	"bytes"
 	"fmt"
+	"io/ioutil"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/k8snetworkplumbingwg/multi-networkpolicy-iptables/pkg/controllers"
@@ -87,6 +90,7 @@ func NewFakeServer(hostname string) *Server {
 		NodeRef:             nodeRef,
 		ip4Tables:           fakeiptables.NewFake(),
 		ip6Tables:           fakeiptables.NewIPv6Fake(),
+		Options:             &Options{},
 
 		hostPrefix:    hostPrefix,
 		policyChanges: policyChanges,
@@ -99,8 +103,8 @@ func NewFakeServer(hostname string) *Server {
 		podLister:     informerFactory.Core().V1().Pods().Lister(),
 	}
 	podConfig.RegisterEventHandler(server)
-	go podConfig.Run(wait.NeverStop)
 	informerFactory.Start(wait.NeverStop)
+	go podConfig.Run(wait.NeverStop)
 	return server
 }
 
@@ -213,6 +217,18 @@ func NewCNIConfigList(cniName, cniType string) string {
 }
 
 var _ = Describe("policyrules testing", func() {
+	var tmpDir string
+
+	BeforeEach(func() {
+		var err error
+		tmpDir, err = ioutil.TempDir("", "multi-networkpolicy-iptables")
+		Expect(err).NotTo(HaveOccurred())
+	})
+
+	AfterEach(func() {
+		err := os.RemoveAll(tmpDir)
+		Expect(err).NotTo(HaveOccurred())
+	})
 
 	It("Initialization", func() {
 		ipt := fakeiptables.NewFake()
@@ -223,7 +239,7 @@ var _ = Describe("policyrules testing", func() {
 		// verify buf initialized at init
 		buf.Init(ipt)
 		filterChains :=
-`*filter
+			`*filter
 :MULTI-INGRESS - [0:0]
 :MULTI-INGRESS-COMMON - [0:0]
 :MULTI-EGRESS - [0:0]
@@ -239,7 +255,7 @@ var _ = Describe("policyrules testing", func() {
 		// finalize buf and verify rules buffer
 		buf.FinalizeRules()
 		filterRules :=
-`*filter
+			`*filter
 :MULTI-INGRESS - [0:0]
 :MULTI-INGRESS-COMMON - [0:0]
 :MULTI-EGRESS - [0:0]
@@ -261,6 +277,688 @@ COMMIT
 		Expect(buf.ingressFrom.String()).To(Equal(""))
 		Expect(buf.egressPorts.String()).To(Equal(""))
 		Expect(buf.egressTo.String()).To(Equal(""))
+	})
+
+	It("ingress common - default", func() {
+		buf4 := newIptableBuffer()
+		buf6 := newIptableBuffer()
+		Expect(buf4).NotTo(BeNil())
+		Expect(buf6).NotTo(BeNil())
+
+		// verify buf initialized at init
+		s := NewFakeServer("samplehost")
+		Expect(s).NotTo(BeNil())
+
+		buf4.Init(s.ip4Tables)
+		buf6.Init(s.ip6Tables)
+
+		// check IPv4 case
+		buf4.renderIngressCommon(s)
+		buf4.FinalizeRules()
+		finalizedRules4 :=
+			`*filter
+:MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
+:MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
+-A MULTI-INGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-INGRESS -j MULTI-INGRESS-COMMON
+COMMIT
+`
+		Expect(buf4.filterRules.String()).To(Equal(finalizedRules4))
+
+		// check IPv6 case
+		buf6.renderIngressCommon(s)
+		buf6.FinalizeRules()
+		finalizedRules6 :=
+			`*filter
+:MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
+:MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
+-A MULTI-INGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-INGRESS -j MULTI-INGRESS-COMMON
+COMMIT
+`
+		Expect(buf6.filterRules.String()).To(Equal(finalizedRules6))
+	})
+
+	It("ingress common - icmp", func() {
+		buf4 := newIptableBuffer()
+		buf6 := newIptableBuffer()
+		Expect(buf4).NotTo(BeNil())
+		Expect(buf6).NotTo(BeNil())
+
+		// verify buf initialized at init
+		s := NewFakeServer("samplehost")
+		Expect(s).NotTo(BeNil())
+		s.Options.acceptICMP = true
+
+		buf4.Init(s.ip4Tables)
+		buf6.Init(s.ip6Tables)
+
+		// check IPv4 case
+		buf4.renderIngressCommon(s)
+		buf4.FinalizeRules()
+		finalizedRules4 :=
+			`*filter
+:MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
+:MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
+-A MULTI-INGRESS-COMMON -p icmp -j ACCEPT
+-A MULTI-INGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-INGRESS -j MULTI-INGRESS-COMMON
+COMMIT
+`
+		Expect(buf4.filterRules.String()).To(Equal(finalizedRules4))
+
+		// check IPv6 case
+		buf6.renderIngressCommon(s)
+		buf6.FinalizeRules()
+		finalizedRules6 :=
+			`*filter
+:MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
+:MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
+-A MULTI-INGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-INGRESS -j MULTI-INGRESS-COMMON
+COMMIT
+`
+		Expect(buf6.filterRules.String()).To(Equal(finalizedRules6))
+	})
+
+	It("ingress common - icmpv6", func() {
+		buf4 := newIptableBuffer()
+		buf6 := newIptableBuffer()
+		Expect(buf4).NotTo(BeNil())
+		Expect(buf6).NotTo(BeNil())
+
+		// verify buf initialized at init
+		s := NewFakeServer("samplehost")
+		Expect(s).NotTo(BeNil())
+		s.Options.acceptICMPv6 = true
+
+		buf4.Init(s.ip4Tables)
+		buf6.Init(s.ip6Tables)
+
+		// check IPv4 case
+		buf4.renderIngressCommon(s)
+		buf4.FinalizeRules()
+		finalizedRules4 :=
+			`*filter
+:MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
+:MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
+-A MULTI-INGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-INGRESS -j MULTI-INGRESS-COMMON
+COMMIT
+`
+		Expect(buf4.filterRules.String()).To(Equal(finalizedRules4))
+
+		// check IPv6 case
+		buf6.renderIngressCommon(s)
+		buf6.FinalizeRules()
+		finalizedRules6 :=
+			`*filter
+:MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
+:MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
+-A MULTI-INGRESS-COMMON -p icmpv6 -j ACCEPT
+-A MULTI-INGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-INGRESS -j MULTI-INGRESS-COMMON
+COMMIT
+`
+		Expect(buf6.filterRules.String()).To(Equal(finalizedRules6))
+	})
+
+	It("ingress common - allow src v6 prefix", func() {
+		buf4 := newIptableBuffer()
+		buf6 := newIptableBuffer()
+		Expect(buf4).NotTo(BeNil())
+		Expect(buf6).NotTo(BeNil())
+
+		// verify buf initialized at init
+		s := NewFakeServer("samplehost")
+		Expect(s).NotTo(BeNil())
+		s.Options.allowIPv6SrcPrefixText = "11::/8 ,   22::/64"
+		err := s.Options.Validate()
+		Expect(err).NotTo(HaveOccurred())
+
+		buf4.Init(s.ip4Tables)
+		buf6.Init(s.ip6Tables)
+
+		// check IPv4 case
+		buf4.renderIngressCommon(s)
+		buf4.FinalizeRules()
+		finalizedRules4 :=
+			`*filter
+:MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
+:MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
+-A MULTI-INGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-INGRESS -j MULTI-INGRESS-COMMON
+COMMIT
+`
+		Expect(buf4.filterRules.String()).To(Equal(finalizedRules4))
+
+		// check IPv6 case
+		buf6.renderIngressCommon(s)
+		buf6.FinalizeRules()
+		finalizedRules6 :=
+			`*filter
+:MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
+:MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
+-A MULTI-INGRESS-COMMON -s 11::/8 -j ACCEPT
+-A MULTI-INGRESS-COMMON -s 22::/64 -j ACCEPT
+-A MULTI-INGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-INGRESS -j MULTI-INGRESS-COMMON
+COMMIT
+`
+		Expect(buf6.filterRules.String()).To(Equal(finalizedRules6))
+	})
+
+	It("ingress common - allow dst v6 prefix", func() {
+		buf4 := newIptableBuffer()
+		buf6 := newIptableBuffer()
+		Expect(buf4).NotTo(BeNil())
+		Expect(buf6).NotTo(BeNil())
+
+		// verify buf initialized at init
+		s := NewFakeServer("samplehost")
+		Expect(s).NotTo(BeNil())
+		s.Options.allowIPv6DstPrefixText = "11::/8 ,   22::/64"
+		Expect(s.Options.Validate()).To(BeNil())
+
+		buf4.Init(s.ip4Tables)
+		buf6.Init(s.ip6Tables)
+
+		// check IPv4 case
+		buf4.renderIngressCommon(s)
+		buf4.FinalizeRules()
+		finalizedRules4 :=
+			`*filter
+:MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
+:MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
+-A MULTI-INGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-INGRESS -j MULTI-INGRESS-COMMON
+COMMIT
+`
+		Expect(buf4.filterRules.String()).To(Equal(finalizedRules4))
+
+		// check IPv6 case
+		buf6.renderIngressCommon(s)
+		buf6.FinalizeRules()
+		finalizedRules6 :=
+			`*filter
+:MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
+:MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
+-A MULTI-INGRESS-COMMON -d 11::/8 -j ACCEPT
+-A MULTI-INGRESS-COMMON -d 22::/64 -j ACCEPT
+-A MULTI-INGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-INGRESS -j MULTI-INGRESS-COMMON
+COMMIT
+`
+		Expect(buf6.filterRules.String()).To(Equal(finalizedRules6))
+	})
+
+	It("ingress common - custom v4 rules", func() {
+		tmpRuleFile := filepath.Join(tmpDir, "testInputRules.txt")
+		ioutil.WriteFile(tmpRuleFile, []byte(
+			`# comment: this accepts DHCP packet
+-m udp -p udp --sport bootps --dport bootpc -j ACCEPT
+`), 0600)
+		buf4 := newIptableBuffer()
+		buf6 := newIptableBuffer()
+		Expect(buf4).NotTo(BeNil())
+		Expect(buf6).NotTo(BeNil())
+
+		// verify buf initialized at init
+		s := NewFakeServer("samplehost")
+		Expect(s).NotTo(BeNil())
+
+		// configure rule file and parse it
+		s.Options.customIPv4IngressRuleFile = tmpRuleFile
+		Expect(s.Options.Validate()).To(BeNil())
+
+		buf4.Init(s.ip4Tables)
+		buf6.Init(s.ip6Tables)
+
+		// check IPv4 case
+		buf4.renderIngressCommon(s)
+		buf4.FinalizeRules()
+		finalizedRules4 :=
+			`*filter
+:MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
+:MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
+-A MULTI-INGRESS-COMMON -m udp -p udp --sport bootps --dport bootpc -j ACCEPT
+-A MULTI-INGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-INGRESS -j MULTI-INGRESS-COMMON
+COMMIT
+`
+		Expect(buf4.filterRules.String()).To(Equal(finalizedRules4))
+
+		// check IPv6 case
+		buf6.renderIngressCommon(s)
+		buf6.FinalizeRules()
+		finalizedRules6 :=
+			`*filter
+:MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
+:MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
+-A MULTI-INGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-INGRESS -j MULTI-INGRESS-COMMON
+COMMIT
+`
+		Expect(buf6.filterRules.String()).To(Equal(finalizedRules6))
+	})
+
+	It("ingress common - custom v6 rules", func() {
+		tmpRuleFile := filepath.Join(tmpDir, "testInputRules.txt")
+		ioutil.WriteFile(tmpRuleFile, []byte(
+			`# comment: this accepts DHCPv6 packets from link-local address
+-m udp -p udp --dport 546 -d fe80::/64 -j ACCEPT
+`), 0600)
+		buf4 := newIptableBuffer()
+		buf6 := newIptableBuffer()
+		Expect(buf4).NotTo(BeNil())
+		Expect(buf6).NotTo(BeNil())
+
+		// verify buf initialized at init
+		s := NewFakeServer("samplehost")
+		Expect(s).NotTo(BeNil())
+
+		// configure rule file and parse it
+		s.Options.customIPv6IngressRuleFile = tmpRuleFile
+		Expect(s.Options.Validate()).To(BeNil())
+
+		buf4.Init(s.ip4Tables)
+		buf6.Init(s.ip6Tables)
+
+		// check IPv4 case
+		buf4.renderIngressCommon(s)
+		buf4.FinalizeRules()
+		finalizedRules4 :=
+			`*filter
+:MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
+:MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
+-A MULTI-INGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-INGRESS -j MULTI-INGRESS-COMMON
+COMMIT
+`
+		Expect(buf4.filterRules.String()).To(Equal(finalizedRules4))
+
+		// check IPv6 case
+		buf6.renderIngressCommon(s)
+		buf6.FinalizeRules()
+		finalizedRules6 :=
+			`*filter
+:MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
+:MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
+-A MULTI-INGRESS-COMMON -m udp -p udp --dport 546 -d fe80::/64 -j ACCEPT
+-A MULTI-INGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-INGRESS -j MULTI-INGRESS-COMMON
+COMMIT
+`
+		Expect(buf6.filterRules.String()).To(Equal(finalizedRules6))
+	})
+
+	It("egress common - default", func() {
+		buf4 := newIptableBuffer()
+		buf6 := newIptableBuffer()
+		Expect(buf4).NotTo(BeNil())
+		Expect(buf6).NotTo(BeNil())
+
+		// verify buf initialized at init
+		s := NewFakeServer("samplehost")
+		Expect(s).NotTo(BeNil())
+
+		buf4.Init(s.ip4Tables)
+		buf6.Init(s.ip6Tables)
+
+		// check IPv4 case
+		buf4.renderEgressCommon(s)
+		buf4.FinalizeRules()
+		finalizedRules4 :=
+			`*filter
+:MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
+:MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
+-A MULTI-EGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-EGRESS -j MULTI-EGRESS-COMMON
+COMMIT
+`
+		Expect(buf4.filterRules.String()).To(Equal(finalizedRules4))
+
+		// check IPv6 case
+		buf6.renderEgressCommon(s)
+		buf6.FinalizeRules()
+		finalizedRules6 :=
+			`*filter
+:MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
+:MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
+-A MULTI-EGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-EGRESS -j MULTI-EGRESS-COMMON
+COMMIT
+`
+		Expect(buf6.filterRules.String()).To(Equal(finalizedRules6))
+	})
+
+	It("egress common - icmp", func() {
+		buf4 := newIptableBuffer()
+		buf6 := newIptableBuffer()
+		Expect(buf4).NotTo(BeNil())
+		Expect(buf6).NotTo(BeNil())
+
+		// verify buf initialized at init
+		s := NewFakeServer("samplehost")
+		Expect(s).NotTo(BeNil())
+		s.Options.acceptICMP = true
+
+		buf4.Init(s.ip4Tables)
+		buf6.Init(s.ip6Tables)
+
+		// check IPv4 case
+		buf4.renderEgressCommon(s)
+		buf4.FinalizeRules()
+		finalizedRules4 :=
+			`*filter
+:MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
+:MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
+-A MULTI-EGRESS-COMMON -p icmp -j ACCEPT
+-A MULTI-EGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-EGRESS -j MULTI-EGRESS-COMMON
+COMMIT
+`
+		Expect(buf4.filterRules.String()).To(Equal(finalizedRules4))
+
+		// check IPv6 case
+		buf6.renderEgressCommon(s)
+		buf6.FinalizeRules()
+		finalizedRules6 :=
+			`*filter
+:MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
+:MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
+-A MULTI-EGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-EGRESS -j MULTI-EGRESS-COMMON
+COMMIT
+`
+		Expect(buf6.filterRules.String()).To(Equal(finalizedRules6))
+	})
+
+	It("egress common - icmpv6", func() {
+		buf4 := newIptableBuffer()
+		buf6 := newIptableBuffer()
+		Expect(buf4).NotTo(BeNil())
+		Expect(buf6).NotTo(BeNil())
+
+		// verify buf initialized at init
+		s := NewFakeServer("samplehost")
+		Expect(s).NotTo(BeNil())
+		s.Options.acceptICMPv6 = true
+
+		buf4.Init(s.ip4Tables)
+		buf6.Init(s.ip6Tables)
+
+		// check IPv4 case
+		buf4.renderEgressCommon(s)
+		buf4.FinalizeRules()
+		finalizedRules4 :=
+			`*filter
+:MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
+:MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
+-A MULTI-EGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-EGRESS -j MULTI-EGRESS-COMMON
+COMMIT
+`
+		Expect(buf4.filterRules.String()).To(Equal(finalizedRules4))
+
+		// check IPv6 case
+		buf6.renderEgressCommon(s)
+		buf6.FinalizeRules()
+		finalizedRules6 :=
+			`*filter
+:MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
+:MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
+-A MULTI-EGRESS-COMMON -p icmpv6 -j ACCEPT
+-A MULTI-EGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-EGRESS -j MULTI-EGRESS-COMMON
+COMMIT
+`
+		Expect(buf6.filterRules.String()).To(Equal(finalizedRules6))
+	})
+
+	It("egress common - allow src v6 prefix", func() {
+		buf4 := newIptableBuffer()
+		buf6 := newIptableBuffer()
+		Expect(buf4).NotTo(BeNil())
+		Expect(buf6).NotTo(BeNil())
+
+		// verify buf initialized at init
+		s := NewFakeServer("samplehost")
+		Expect(s).NotTo(BeNil())
+		s.Options.allowIPv6SrcPrefixText = "11::/8 ,   22::/64"
+		Expect(s.Options.Validate()).To(BeNil())
+
+		buf4.Init(s.ip4Tables)
+		buf6.Init(s.ip6Tables)
+
+		// check IPv4 case
+		buf4.renderEgressCommon(s)
+		buf4.FinalizeRules()
+		finalizedRules4 :=
+			`*filter
+:MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
+:MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
+-A MULTI-EGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-EGRESS -j MULTI-EGRESS-COMMON
+COMMIT
+`
+		Expect(buf4.filterRules.String()).To(Equal(finalizedRules4))
+
+		// check IPv6 case
+		buf6.renderEgressCommon(s)
+		buf6.FinalizeRules()
+		finalizedRules6 :=
+			`*filter
+:MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
+:MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
+-A MULTI-EGRESS-COMMON -s 11::/8 -j ACCEPT
+-A MULTI-EGRESS-COMMON -s 22::/64 -j ACCEPT
+-A MULTI-EGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-EGRESS -j MULTI-EGRESS-COMMON
+COMMIT
+`
+		Expect(buf6.filterRules.String()).To(Equal(finalizedRules6))
+	})
+
+	It("egress common - allow dest v6 prefix", func() {
+		buf4 := newIptableBuffer()
+		buf6 := newIptableBuffer()
+		Expect(buf4).NotTo(BeNil())
+		Expect(buf6).NotTo(BeNil())
+
+		// verify buf initialized at init
+		s := NewFakeServer("samplehost")
+		Expect(s).NotTo(BeNil())
+		s.Options.allowIPv6DstPrefixText = "11::/8 ,   22::/64"
+		Expect(s.Options.Validate()).To(BeNil())
+
+		buf4.Init(s.ip4Tables)
+		buf6.Init(s.ip6Tables)
+
+		// check IPv4 case
+		buf4.renderEgressCommon(s)
+		buf4.FinalizeRules()
+		finalizedRules4 :=
+			`*filter
+:MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
+:MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
+-A MULTI-EGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-EGRESS -j MULTI-EGRESS-COMMON
+COMMIT
+`
+		Expect(buf4.filterRules.String()).To(Equal(finalizedRules4))
+
+		// check IPv6 case
+		buf6.renderEgressCommon(s)
+		buf6.FinalizeRules()
+		finalizedRules6 :=
+			`*filter
+:MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
+:MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
+-A MULTI-EGRESS-COMMON -d 11::/8 -j ACCEPT
+-A MULTI-EGRESS-COMMON -d 22::/64 -j ACCEPT
+-A MULTI-EGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-EGRESS -j MULTI-EGRESS-COMMON
+COMMIT
+`
+		Expect(buf6.filterRules.String()).To(Equal(finalizedRules6))
+	})
+
+	It("egress common - custom v4 rules", func() {
+		tmpRuleFile := filepath.Join(tmpDir, "testInputRules.txt")
+		ioutil.WriteFile(tmpRuleFile, []byte(
+			`# comment: this rules accepts DHCP packets
+-m udp -p udp --sport bootc --dport bootps -j ACCEPT
+`), 0600)
+		buf4 := newIptableBuffer()
+		buf6 := newIptableBuffer()
+		Expect(buf4).NotTo(BeNil())
+		Expect(buf6).NotTo(BeNil())
+
+		// verify buf initialized at init
+		s := NewFakeServer("samplehost")
+		Expect(s).NotTo(BeNil())
+
+		// configure rule file and parse it
+		s.Options.customIPv4EgressRuleFile = tmpRuleFile
+		Expect(s.Options.Validate()).To(BeNil())
+
+		buf4.Init(s.ip4Tables)
+		buf6.Init(s.ip6Tables)
+
+		// check IPv4 case
+		buf4.renderEgressCommon(s)
+		buf4.FinalizeRules()
+		finalizedRules4 :=
+			`*filter
+:MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
+:MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
+-A MULTI-EGRESS-COMMON -m udp -p udp --sport bootc --dport bootps -j ACCEPT
+-A MULTI-EGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-EGRESS -j MULTI-EGRESS-COMMON
+COMMIT
+`
+		Expect(buf4.filterRules.String()).To(Equal(finalizedRules4))
+
+		// check IPv6 case
+		buf6.renderEgressCommon(s)
+		buf6.FinalizeRules()
+		finalizedRules6 :=
+			`*filter
+:MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
+:MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
+-A MULTI-EGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-EGRESS -j MULTI-EGRESS-COMMON
+COMMIT
+`
+		Expect(buf6.filterRules.String()).To(Equal(finalizedRules6))
+	})
+
+	It("egress common - custom v6 rules", func() {
+		tmpRuleFile := filepath.Join(tmpDir, "testInputRules.txt")
+		ioutil.WriteFile(tmpRuleFile, []byte(
+			`# comment: this rules accepts DHCPv6 packet to dhcp relay agents/servers
+-m udp -p udp --dport 547 -d ff02::1:2 -j ACCEPT
+`), 0600)
+		buf4 := newIptableBuffer()
+		buf6 := newIptableBuffer()
+		Expect(buf4).NotTo(BeNil())
+		Expect(buf6).NotTo(BeNil())
+
+		// verify buf initialized at init
+		s := NewFakeServer("samplehost")
+		Expect(s).NotTo(BeNil())
+
+		// configure rule file and parse it
+		s.Options.customIPv6EgressRuleFile = tmpRuleFile
+		Expect(s.Options.Validate()).To(BeNil())
+
+		buf4.Init(s.ip4Tables)
+		buf6.Init(s.ip6Tables)
+
+		// check IPv4 case
+		buf4.renderEgressCommon(s)
+		buf4.FinalizeRules()
+		finalizedRules4 :=
+			`*filter
+:MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
+:MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
+-A MULTI-EGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-EGRESS -j MULTI-EGRESS-COMMON
+COMMIT
+`
+		fmt.Fprintf(os.Stderr, "XXX: %s", buf4.filterRules.String())
+		Expect(buf4.filterRules.String()).To(Equal(finalizedRules4))
+
+		// check IPv6 case
+		buf6.renderEgressCommon(s)
+		buf6.FinalizeRules()
+		finalizedRules6 :=
+			`*filter
+:MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
+:MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
+-A MULTI-EGRESS-COMMON -m udp -p udp --dport 547 -d ff02::1:2 -j ACCEPT
+-A MULTI-EGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-EGRESS -j MULTI-EGRESS-COMMON
+COMMIT
+`
+		Expect(buf6.filterRules.String()).To(Equal(finalizedRules6))
 	})
 
 	It("ingress rules ipblock", func() {
@@ -316,7 +1014,7 @@ COMMIT
 			nil)
 		AddPod(s, pod1)
 		podInfo1, err := s.podMap.GetPodInfo(pod1)
-		Expect(err).To(BeNil())
+		Expect(err).NotTo(HaveOccurred())
 
 		buf.renderIngress(s, podInfo1, 0, ingressPolicies1, []string{"testns1/net-attach1"})
 
@@ -325,7 +1023,7 @@ COMMIT
 		Expect(buf.ingressPorts.String()).To(Equal(portRules))
 
 		fromRules :=
-`-A MULTI-0-INGRESS-0-FROM -i net1 -s 10.1.1.254 -j DROP
+			`-A MULTI-0-INGRESS-0-FROM -i net1 -s 10.1.1.254 -j DROP
 -A MULTI-0-INGRESS-0-FROM -i net1 -s 10.1.1.1/24 -j MARK --set-xmark 0x20000/0x20000
 -A MULTI-0-INGRESS-0-FROM -i net1 -s 10.1.1.1 -j MARK --set-xmark 0x20000/0x20000
 `
@@ -333,7 +1031,7 @@ COMMIT
 
 		buf.FinalizeRules()
 		finalizedRules :=
-`*filter
+			`*filter
 :MULTI-INGRESS - [0:0]
 :MULTI-INGRESS-COMMON - [0:0]
 :MULTI-EGRESS - [0:0]
@@ -341,7 +1039,6 @@ COMMIT
 :MULTI-0-INGRESS - [0:0]
 :MULTI-0-INGRESS-0-PORTS - [0:0]
 :MULTI-0-INGRESS-0-FROM - [0:0]
--A MULTI-INGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 -A MULTI-INGRESS -m comment --comment "policy:ingressPolicies1 net-attach-def:testns1/net-attach1" -i net1 -j MULTI-0-INGRESS
 -A MULTI-INGRESS -m mark --mark 0x30000/0x30000 -j RETURN
 -A MULTI-0-INGRESS -j MARK --set-xmark 0x0/0x30000
@@ -412,7 +1109,7 @@ COMMIT
 			nil)
 		AddPod(s, pod1)
 		podInfo1, err := s.podMap.GetPodInfo(pod1)
-		Expect(err).To(BeNil())
+		Expect(err).NotTo(HaveOccurred())
 
 		pod2 := NewFakePodWithNetAnnotation(
 			"testns1",
@@ -431,14 +1128,14 @@ COMMIT
 		Expect(buf.ingressPorts.String()).To(Equal(portRules))
 
 		fromRules :=
-`-A MULTI-0-INGRESS-0-FROM -i net1 -s 10.1.1.2 -j MARK --set-xmark 0x20000/0x20000
+			`-A MULTI-0-INGRESS-0-FROM -i net1 -s 10.1.1.2 -j MARK --set-xmark 0x20000/0x20000
 -A MULTI-0-INGRESS-0-FROM -i net1 -s 10.1.1.1 -j MARK --set-xmark 0x20000/0x20000
 `
 		Expect(buf.ingressFrom.String()).To(Equal(fromRules))
 
 		buf.FinalizeRules()
 		finalizedRules :=
-`*filter
+			`*filter
 :MULTI-INGRESS - [0:0]
 :MULTI-INGRESS-COMMON - [0:0]
 :MULTI-EGRESS - [0:0]
@@ -446,7 +1143,6 @@ COMMIT
 :MULTI-0-INGRESS - [0:0]
 :MULTI-0-INGRESS-0-PORTS - [0:0]
 :MULTI-0-INGRESS-0-FROM - [0:0]
--A MULTI-INGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 -A MULTI-INGRESS -m comment --comment "policy:ingressPolicies1 net-attach-def:testns1/net-attach1" -i net1 -j MULTI-0-INGRESS
 -A MULTI-INGRESS -m mark --mark 0x30000/0x30000 -j RETURN
 -A MULTI-0-INGRESS -j MARK --set-xmark 0x0/0x30000
@@ -513,7 +1209,7 @@ COMMIT
 			nil)
 		AddPod(s, pod1)
 		podInfo1, err := s.podMap.GetPodInfo(pod1)
-		Expect(err).To(BeNil())
+		Expect(err).NotTo(HaveOccurred())
 
 		pod2 := NewFakePodWithNetAnnotation(
 			"testns2",
@@ -526,7 +1222,7 @@ COMMIT
 
 		buf.FinalizeRules()
 		finalizedRules :=
-`*filter
+			`*filter
 :MULTI-INGRESS - [0:0]
 :MULTI-INGRESS-COMMON - [0:0]
 :MULTI-EGRESS - [0:0]
@@ -534,7 +1230,6 @@ COMMIT
 :MULTI-0-INGRESS - [0:0]
 :MULTI-0-INGRESS-0-PORTS - [0:0]
 :MULTI-0-INGRESS-0-FROM - [0:0]
--A MULTI-INGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 -A MULTI-INGRESS -m comment --comment "policy:ingressPolicies1 net-attach-def:testns1/net-attach1" -i net1 -j MULTI-0-INGRESS
 -A MULTI-INGRESS -m mark --mark 0x30000/0x30000 -j RETURN
 -A MULTI-0-INGRESS -j MARK --set-xmark 0x0/0x30000
@@ -599,7 +1294,7 @@ COMMIT
 			nil)
 		AddPod(s, pod1)
 		podInfo1, err := s.podMap.GetPodInfo(pod1)
-		Expect(err).To(BeNil())
+		Expect(err).NotTo(HaveOccurred())
 
 		pod2 := NewFakePodWithNetAnnotation(
 			"testns2",
@@ -612,7 +1307,7 @@ COMMIT
 
 		buf.FinalizeRules()
 		finalizedRules :=
-`*filter
+			`*filter
 :MULTI-INGRESS - [0:0]
 :MULTI-INGRESS-COMMON - [0:0]
 :MULTI-EGRESS - [0:0]
@@ -620,7 +1315,6 @@ COMMIT
 :MULTI-0-INGRESS - [0:0]
 :MULTI-0-INGRESS-0-PORTS - [0:0]
 :MULTI-0-INGRESS-0-FROM - [0:0]
--A MULTI-INGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 -A MULTI-INGRESS -m comment --comment "policy:ingressPolicies1 net-attach-def:default/net-attach1" -i net1 -j MULTI-0-INGRESS
 -A MULTI-INGRESS -m mark --mark 0x30000/0x30000 -j RETURN
 -A MULTI-0-INGRESS -j MARK --set-xmark 0x0/0x30000
@@ -687,7 +1381,7 @@ COMMIT
 			nil)
 		AddPod(s, pod1)
 		podInfo1, err := s.podMap.GetPodInfo(pod1)
-		Expect(err).To(BeNil())
+		Expect(err).NotTo(HaveOccurred())
 
 		buf.renderEgress(s, podInfo1, 0, egressPolicies1, []string{"testns1/net-attach1"})
 
@@ -696,7 +1390,7 @@ COMMIT
 		Expect(buf.egressPorts.String()).To(Equal(portRules))
 
 		toRules :=
-`-A MULTI-0-EGRESS-0-TO -o net1 -d 10.1.1.254 -j DROP
+			`-A MULTI-0-EGRESS-0-TO -o net1 -d 10.1.1.254 -j DROP
 -A MULTI-0-EGRESS-0-TO -o net1 -d 10.1.1.1/24 -j MARK --set-xmark 0x20000/0x20000
 -A MULTI-0-EGRESS-0-TO -o net1 -d 10.1.1.1 -j MARK --set-xmark 0x20000/0x20000
 `
@@ -704,7 +1398,7 @@ COMMIT
 
 		buf.FinalizeRules()
 		finalizedRules :=
-`*filter
+			`*filter
 :MULTI-INGRESS - [0:0]
 :MULTI-INGRESS-COMMON - [0:0]
 :MULTI-EGRESS - [0:0]
@@ -712,7 +1406,6 @@ COMMIT
 :MULTI-0-EGRESS - [0:0]
 :MULTI-0-EGRESS-0-PORTS - [0:0]
 :MULTI-0-EGRESS-0-TO - [0:0]
--A MULTI-EGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 -A MULTI-EGRESS -m comment --comment "policy:EgressPolicies1 net-attach-def:testns1/net-attach1" -o net1 -j MULTI-0-EGRESS
 -A MULTI-EGRESS -m mark --mark 0x30000/0x30000 -j RETURN
 -A MULTI-0-EGRESS -j MARK --set-xmark 0x0/0x30000
@@ -783,7 +1476,7 @@ COMMIT
 			nil)
 		AddPod(s, pod1)
 		podInfo1, err := s.podMap.GetPodInfo(pod1)
-		Expect(err).To(BeNil())
+		Expect(err).NotTo(HaveOccurred())
 
 		pod2 := NewFakePodWithNetAnnotation(
 			"testns1",
@@ -802,14 +1495,14 @@ COMMIT
 		Expect(buf.egressPorts.String()).To(Equal(portRules))
 
 		toRules :=
-`-A MULTI-0-EGRESS-0-TO -o net1 -d 10.1.1.2 -j MARK --set-xmark 0x20000/0x20000
+			`-A MULTI-0-EGRESS-0-TO -o net1 -d 10.1.1.2 -j MARK --set-xmark 0x20000/0x20000
 -A MULTI-0-EGRESS-0-TO -o net1 -d 10.1.1.1 -j MARK --set-xmark 0x20000/0x20000
 `
 		Expect(buf.egressTo.String()).To(Equal(toRules))
 
 		buf.FinalizeRules()
 		finalizedRules :=
-`*filter
+			`*filter
 :MULTI-INGRESS - [0:0]
 :MULTI-INGRESS-COMMON - [0:0]
 :MULTI-EGRESS - [0:0]
@@ -817,7 +1510,6 @@ COMMIT
 :MULTI-0-EGRESS - [0:0]
 :MULTI-0-EGRESS-0-PORTS - [0:0]
 :MULTI-0-EGRESS-0-TO - [0:0]
--A MULTI-EGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 -A MULTI-EGRESS -m comment --comment "policy:EgressPolicies1 net-attach-def:testns1/net-attach1" -o net1 -j MULTI-0-EGRESS
 -A MULTI-EGRESS -m mark --mark 0x30000/0x30000 -j RETURN
 -A MULTI-0-EGRESS -j MARK --set-xmark 0x0/0x30000
@@ -886,7 +1578,7 @@ COMMIT
 			nil)
 		AddPod(s, pod1)
 		podInfo1, err := s.podMap.GetPodInfo(pod1)
-		Expect(err).To(BeNil())
+		Expect(err).NotTo(HaveOccurred())
 
 		buf.renderIngress(s, podInfo1, 0, policies1, []string{"testns1/net-attach1"})
 		buf.renderEgress(s, podInfo1, 0, policies1, []string{"testns1/net-attach1"})
@@ -947,7 +1639,7 @@ COMMIT
 				nil)
 			AddPod(s, pod1)
 			podInfo1, err := s.podMap.GetPodInfo(pod1)
-			Expect(err).To(BeNil())
+			Expect(err).NotTo(HaveOccurred())
 
 			pod2 := NewFakePodWithNetAnnotation(
 				"testns1",
@@ -969,7 +1661,7 @@ COMMIT
 			buf.FinalizeRules()
 
 			expectedRules :=
-`*filter
+				`*filter
 :MULTI-INGRESS - [0:0]
 :MULTI-INGRESS-COMMON - [0:0]
 :MULTI-EGRESS - [0:0]
@@ -980,22 +1672,11 @@ COMMIT
 :MULTI-0-EGRESS - [0:0]
 :MULTI-0-EGRESS-0-PORTS - [0:0]
 :MULTI-0-EGRESS-0-TO - [0:0]
--A MULTI-INGRESS-COMMON -p icmpv6 --icmpv6-type neighbor-solicitation -j ACCEPT
--A MULTI-INGRESS-COMMON -p icmpv6 --icmpv6-type neighbor-advertisement -j ACCEPT
--A MULTI-INGRESS-COMMON -p icmpv6 --icmpv6-type router-advertisement -j ACCEPT
--A MULTI-INGRESS-COMMON -p icmpv6 --icmpv6-type redirect -j ACCEPT
--A MULTI-INGRESS-COMMON -m udp -p udp --dport 546 -d fe80::/64 -j ACCEPT
--A MULTI-INGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 -A MULTI-INGRESS -m comment --comment "policy:ingressPolicies1 net-attach-def:testns1/net-attach1" -i net1 -j MULTI-0-INGRESS
 -A MULTI-INGRESS -m mark --mark 0x30000/0x30000 -j RETURN
 -A MULTI-0-INGRESS -j MARK --set-xmark 0x0/0x30000
 -A MULTI-0-INGRESS -j MULTI-0-INGRESS-0-PORTS
 -A MULTI-0-INGRESS -j MULTI-0-INGRESS-0-FROM
--A MULTI-EGRESS-COMMON -p icmpv6 --icmpv6-type neighbor-solicitation -j ACCEPT
--A MULTI-EGRESS-COMMON -p icmpv6 --icmpv6-type neighbor-advertisement -j ACCEPT
--A MULTI-EGRESS-COMMON -p icmpv6 --icmpv6-type router-solicitation -j ACCEPT
--A MULTI-EGRESS-COMMON -m udp -p udp --dport 547 -d ff02::1:2 -j ACCEPT
--A MULTI-EGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 -A MULTI-EGRESS -m comment --comment "policy:ingressPolicies1 net-attach-def:testns1/net-attach1" -o net1 -j MULTI-0-EGRESS
 -A MULTI-EGRESS -m mark --mark 0x30000/0x30000 -j RETURN
 -A MULTI-0-EGRESS -j MARK --set-xmark 0x0/0x30000
@@ -1057,7 +1738,7 @@ COMMIT
 				nil)
 			AddPod(s, pod1)
 			podInfo1, err := s.podMap.GetPodInfo(pod1)
-			Expect(err).To(BeNil())
+			Expect(err).NotTo(HaveOccurred())
 
 			pod2 := NewFakePodWithNetAnnotation(
 				"testns1",
@@ -1069,7 +1750,7 @@ COMMIT
 				})
 			AddPod(s, pod2)
 			_, err = s.podMap.GetPodInfo(pod2)
-			Expect(err).To(BeNil())
+			Expect(err).NotTo(HaveOccurred())
 
 			ipt := fakeiptables.NewIPv6Fake()
 			buf := newIptableBuffer()
@@ -1081,7 +1762,7 @@ COMMIT
 			buf.FinalizeRules()
 
 			expectedRules :=
-`*filter
+				`*filter
 :MULTI-INGRESS - [0:0]
 :MULTI-INGRESS-COMMON - [0:0]
 :MULTI-EGRESS - [0:0]
@@ -1092,22 +1773,11 @@ COMMIT
 :MULTI-0-EGRESS - [0:0]
 :MULTI-0-EGRESS-0-PORTS - [0:0]
 :MULTI-0-EGRESS-0-TO - [0:0]
--A MULTI-INGRESS-COMMON -p icmpv6 --icmpv6-type neighbor-solicitation -j ACCEPT
--A MULTI-INGRESS-COMMON -p icmpv6 --icmpv6-type neighbor-advertisement -j ACCEPT
--A MULTI-INGRESS-COMMON -p icmpv6 --icmpv6-type router-advertisement -j ACCEPT
--A MULTI-INGRESS-COMMON -p icmpv6 --icmpv6-type redirect -j ACCEPT
--A MULTI-INGRESS-COMMON -m udp -p udp --dport 546 -d fe80::/64 -j ACCEPT
--A MULTI-INGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 -A MULTI-INGRESS -m comment --comment "policy:ingressPolicies1 net-attach-def:testns1/net-attach1" -i net1 -j MULTI-0-INGRESS
 -A MULTI-INGRESS -m mark --mark 0x30000/0x30000 -j RETURN
 -A MULTI-0-INGRESS -j MARK --set-xmark 0x0/0x30000
 -A MULTI-0-INGRESS -j MULTI-0-INGRESS-0-PORTS
 -A MULTI-0-INGRESS -j MULTI-0-INGRESS-0-FROM
--A MULTI-EGRESS-COMMON -p icmpv6 --icmpv6-type neighbor-solicitation -j ACCEPT
--A MULTI-EGRESS-COMMON -p icmpv6 --icmpv6-type neighbor-advertisement -j ACCEPT
--A MULTI-EGRESS-COMMON -p icmpv6 --icmpv6-type router-solicitation -j ACCEPT
--A MULTI-EGRESS-COMMON -m udp -p udp --dport 547 -d ff02::1:2 -j ACCEPT
--A MULTI-EGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 -A MULTI-EGRESS -m comment --comment "policy:ingressPolicies1 net-attach-def:testns1/net-attach1" -o net1 -j MULTI-0-EGRESS
 -A MULTI-EGRESS -m mark --mark 0x30000/0x30000 -j RETURN
 -A MULTI-0-EGRESS -j MARK --set-xmark 0x0/0x30000
@@ -1136,7 +1806,7 @@ var _ = Describe("policyrules testing - invalid case", func() {
 		// verify buf initialized at init
 		buf.Init(ipt)
 		filterChains :=
-`*filter
+			`*filter
 :MULTI-INGRESS - [0:0]
 :MULTI-INGRESS-COMMON - [0:0]
 :MULTI-EGRESS - [0:0]
@@ -1152,7 +1822,7 @@ var _ = Describe("policyrules testing - invalid case", func() {
 		// finalize buf and verify rules buffer
 		buf.FinalizeRules()
 		filterRules :=
-`*filter
+			`*filter
 :MULTI-INGRESS - [0:0]
 :MULTI-INGRESS-COMMON - [0:0]
 :MULTI-EGRESS - [0:0]
@@ -1229,13 +1899,13 @@ COMMIT
 			nil)
 		AddPod(s, pod1)
 		podInfo1, err := s.podMap.GetPodInfo(pod1)
-		Expect(err).To(BeNil())
+		Expect(err).NotTo(HaveOccurred())
 
 		buf.renderIngress(s, podInfo1, 0, ingressPolicies1, []string{})
 
 		buf.FinalizeRules()
 		finalizedRules :=
-`*filter
+			`*filter
 :MULTI-INGRESS - [0:0]
 :MULTI-INGRESS-COMMON - [0:0]
 :MULTI-EGRESS - [0:0]
@@ -1243,7 +1913,6 @@ COMMIT
 :MULTI-0-INGRESS - [0:0]
 :MULTI-0-INGRESS-0-PORTS - [0:0]
 :MULTI-0-INGRESS-0-FROM - [0:0]
--A MULTI-INGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 -A MULTI-0-INGRESS -j MARK --set-xmark 0x0/0x30000
 -A MULTI-0-INGRESS -j MULTI-0-INGRESS-0-PORTS
 -A MULTI-0-INGRESS -j MULTI-0-INGRESS-0-FROM
@@ -1310,7 +1979,7 @@ COMMIT
 			nil)
 		AddPod(s, pod1)
 		podInfo1, err := s.podMap.GetPodInfo(pod1)
-		Expect(err).To(BeNil())
+		Expect(err).NotTo(HaveOccurred())
 
 		pod2 := NewFakePodWithNetAnnotation(
 			"testns1",
@@ -1326,7 +1995,7 @@ COMMIT
 
 		buf.FinalizeRules()
 		finalizedRules :=
-`*filter
+			`*filter
 :MULTI-INGRESS - [0:0]
 :MULTI-INGRESS-COMMON - [0:0]
 :MULTI-EGRESS - [0:0]
@@ -1334,7 +2003,6 @@ COMMIT
 :MULTI-0-INGRESS - [0:0]
 :MULTI-0-INGRESS-0-PORTS - [0:0]
 :MULTI-0-INGRESS-0-FROM - [0:0]
--A MULTI-INGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 -A MULTI-0-INGRESS -j MARK --set-xmark 0x0/0x30000
 -A MULTI-0-INGRESS -j MULTI-0-INGRESS-0-PORTS
 -A MULTI-0-INGRESS -j MULTI-0-INGRESS-0-FROM
@@ -1398,13 +2066,13 @@ COMMIT
 			nil)
 		AddPod(s, pod1)
 		podInfo1, err := s.podMap.GetPodInfo(pod1)
-		Expect(err).To(BeNil())
+		Expect(err).NotTo(HaveOccurred())
 
 		buf.renderEgress(s, podInfo1, 0, egressPolicies1, []string{})
 
 		buf.FinalizeRules()
 		finalizedRules :=
-`*filter
+			`*filter
 :MULTI-INGRESS - [0:0]
 :MULTI-INGRESS-COMMON - [0:0]
 :MULTI-EGRESS - [0:0]
@@ -1412,7 +2080,6 @@ COMMIT
 :MULTI-0-EGRESS - [0:0]
 :MULTI-0-EGRESS-0-PORTS - [0:0]
 :MULTI-0-EGRESS-0-TO - [0:0]
--A MULTI-EGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 -A MULTI-0-EGRESS -j MARK --set-xmark 0x0/0x30000
 -A MULTI-0-EGRESS -j MULTI-0-EGRESS-0-PORTS
 -A MULTI-0-EGRESS -j MULTI-0-EGRESS-0-TO
@@ -1479,7 +2146,7 @@ COMMIT
 			nil)
 		AddPod(s, pod1)
 		podInfo1, err := s.podMap.GetPodInfo(pod1)
-		Expect(err).To(BeNil())
+		Expect(err).NotTo(HaveOccurred())
 
 		pod2 := NewFakePodWithNetAnnotation(
 			"testns1",
@@ -1495,7 +2162,7 @@ COMMIT
 
 		buf.FinalizeRules()
 		finalizedRules :=
-`*filter
+			`*filter
 :MULTI-INGRESS - [0:0]
 :MULTI-INGRESS-COMMON - [0:0]
 :MULTI-EGRESS - [0:0]
@@ -1503,7 +2170,6 @@ COMMIT
 :MULTI-0-EGRESS - [0:0]
 :MULTI-0-EGRESS-0-PORTS - [0:0]
 :MULTI-0-EGRESS-0-TO - [0:0]
--A MULTI-EGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 -A MULTI-0-EGRESS -j MARK --set-xmark 0x0/0x30000
 -A MULTI-0-EGRESS -j MULTI-0-EGRESS-0-PORTS
 -A MULTI-0-EGRESS -j MULTI-0-EGRESS-0-TO

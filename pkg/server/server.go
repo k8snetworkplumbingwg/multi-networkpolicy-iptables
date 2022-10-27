@@ -629,10 +629,12 @@ func (s *Server) generatePolicyRulesForPodAndFamily(pod *v1.Pod, podInfo *contro
 
 		if podInfo.CheckPolicyNetwork(policyNetworks) {
 			if ingressEnable {
+				iptableBuffer.renderIngressCommon(s)
 				iptableBuffer.renderIngress(s, podInfo, idx, policy, policyNetworks)
 				ingressRendered++
 			}
 			if egressEnable {
+				iptableBuffer.renderEgressCommon(s)
 				iptableBuffer.renderEgress(s, podInfo, idx, policy, policyNetworks)
 				egressRendered++
 			}

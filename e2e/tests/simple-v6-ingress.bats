@@ -24,6 +24,9 @@ setup() {
 }
 
 @test "check generated ip6tables rules" {
+	# wait for sync
+	sleep 3
+
 	# check pod-server has multi-networkpolicy ip6tables rules for ingress
         run kubectl -n test-simple-v6-ingress exec pod-server -- sh -c "ip6tables-save | grep MULTI-0-INGRESS"
 	[ "$status" -eq  "0" ]
@@ -34,11 +37,8 @@ setup() {
         run kubectl -n test-simple-v6-ingress exec pod-client-b -- sh -c "ip6tables-save | grep MULTI-0-INGRESS"
 	[ "$status" -eq  "1" ]
 
-	# wait for sync
-	sleep 3
 	# check that ip6tables files in pod-iptables
-	#pod_name=$(kubectl -n kube-system get pod -o wide | grep 'kind-worker' | grep multi-net | cut -f 1 -d ' ')
-	pod_name=$(kubectl -n kube-system get pod -o wide | grep 'kube-node-1' | grep multi-net | cut -f 1 -d ' ')
+	pod_name=$(kubectl -n kube-system get pod -o wide | grep 'kind-worker' | grep multi-net | cut -f 1 -d ' ')
 	run kubectl -n kube-system exec ${pod_name} -- \
 		sh -c "find /var/lib/multi-networkpolicy/iptables/ -name '*.ip6tables' | wc -l"
         [ "$output" = "6" ]
@@ -92,8 +92,7 @@ setup() {
 
 	sleep 3
 	# check that no ip6tables files in pod-iptables
-	#pod_name=$(kubectl -n kube-system get pod -o wide | grep 'kind-worker' | grep multi-net | cut -f 1 -d ' ')
-	pod_name=$(kubectl -n kube-system get pod -o wide | grep 'kube-node-1' | grep multi-net | cut -f 1 -d ' ')
+	pod_name=$(kubectl -n kube-system get pod -o wide | grep 'kind-worker' | grep multi-net | cut -f 1 -d ' ')
 	run kubectl -n kube-system exec ${pod_name} -- \
 		sh -c "find /var/lib/multi-networkpolicy/iptables/ -name '*.ip6tables' | wc -l"
         [ "$output" = "0" ]

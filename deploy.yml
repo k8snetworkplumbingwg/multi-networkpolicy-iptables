@@ -54,6 +54,42 @@ metadata:
   name: multi-networkpolicy
   namespace: kube-system
 ---
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: multi-networkpolicy-custom-v4-rules
+  namespace: kube-system
+  labels:
+    tier: node
+    app: multi-networkpolicy
+data:
+  custom-v4-rules.txt: |
+    # accept redirect
+    -p icmp --icmp-type redirect -j ACCEPT
+    # accept fragmentation-needed (for MTU discovery)
+    -p icmp --icmp-type fragmentation-needed -j ACCEPT
+---
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: multi-networkpolicy-custom-v6-rules
+  namespace: kube-system
+  labels:
+    tier: node
+    app: multi-networkpolicy
+data:
+  custom-v6-rules.txt: |
+    # accept NDP
+    -p icmpv6 --icmpv6-type neighbor-solicitation -j ACCEPT
+    -p icmpv6 --icmpv6-type neighbor-advertisement -j ACCEPT
+    # accept RA/RS
+    -p icmpv6 --icmpv6-type router-solicitation -j ACCEPT
+    -p icmpv6 --icmpv6-type router-advertisement -j ACCEPT
+    # accept redirect
+    -p icmpv6 --icmpv6-type redirect -j ACCEPT
+    # accept packet-too-big (for MTU discovery)
+    -p icmpv6 --icmpv6-type packet-too-big -j ACCEPT
+---
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -85,7 +121,6 @@ spec:
       serviceAccountName: multi-networkpolicy
       containers:
       - name: multi-networkpolicy
-        # crio support requires multus:latest for now. support 3.3 or later.
         image: ghcr.io/k8snetworkplumbingwg/multi-networkpolicy-iptables:snapshot-amd64
         imagePullPolicy: Always
         command: ["/usr/bin/multi-networkpolicy-iptables"]
@@ -95,6 +130,17 @@ spec:
         - "--container-runtime-endpoint=/run/crio/crio.sock"
         # uncomment this if you want to store iptables rules
         - "--pod-iptables=/var/lib/multi-networkpolicy/iptables"
+        # uncomment this if you need to accept link-local address traffic
+        #- "--allow-ipv6-src-prefix=fe80::/10"
+        #- "--allow-ipv6-dst-prefix=fe80::/10"
+        # uncomment this if you need to add custom iptables rules defined above configmap
+        #- "--custom-v4-ingress-rule-file=/etc/multi-networkpolicy/rules/custom-v4-rules.txt"
+        #- "--custom-v4-egress-rule-file=/etc/multi-networkpolicy/rules/custom-v4-rules.txt"
+        #- "--custom-v6-ingress-rule-file=/etc/multi-networkpolicy/rules/custom-v6-rules.txt"
+        #- "--custom-v6-egress-rule-file=/etc/multi-networkpolicy/rules/custom-v6-rules.txt"
+        # uncomment if you want to accept ICMP/ICMPv6 traffic
+        #- "--accept-icmp"
+        #- "--accept-icmpv6"
         resources:
           requests:
             cpu: "100m"
@@ -111,6 +157,9 @@ spec:
           mountPath: /host
         - name: var-lib-multinetworkpolicy
           mountPath: /var/lib/multi-networkpolicy
+        - name: multi-networkpolicy-custom-rules
+          mountPath: /etc/multi-networkpolicy/rules
+          readOnly: true
       volumes:
         - name: host
           hostPath:
@@ -118,3 +167,10 @@ spec:
         - name: var-lib-multinetworkpolicy
           hostPath:
             path: /var/lib/multi-networkpolicy
+        - name: multi-networkpolicy-custom-rules
+          projected:
+            sources:
+              - configMap:
+                  name: multi-networkpolicy-custom-v4-rules
+              - configMap:
+                  name: multi-networkpolicy-custom-v6-rules

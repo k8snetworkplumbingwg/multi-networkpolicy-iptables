@@ -44,6 +44,10 @@ need to be loaded on the container host:
 # modprobe ip_tables ip6_tables
 ```
 
+## Configurations
+
+See [Configurations](docs/configurations.md).
+
 ## Demo
 
 (TBD)

@@ -47,6 +47,7 @@ type iptableBuffer struct {
 	currentFilter map[utiliptables.Chain][]byte
 	currentChain  map[utiliptables.Chain]bool
 	activeChain   map[utiliptables.Chain]bool
+	policyCommon  *bytes.Buffer
 	policyIndex   *bytes.Buffer
 	ingressPorts  *bytes.Buffer
 	ingressFrom   *bytes.Buffer
@@ -60,6 +61,7 @@ type iptableBuffer struct {
 func newIptableBuffer() *iptableBuffer {
 	buf := &iptableBuffer{
 		currentFilter: make(map[utiliptables.Chain][]byte),
+		policyCommon:  bytes.NewBuffer(nil),
 		policyIndex:   bytes.NewBuffer(nil),
 		ingressPorts:  bytes.NewBuffer(nil),
 		ingressFrom:   bytes.NewBuffer(nil),
@@ -108,6 +110,7 @@ func (ipt *iptableBuffer) Init(iptables utiliptables.Interface) {
 
 // Reset clears iptableBuffer
 func (ipt *iptableBuffer) Reset() {
+	ipt.policyCommon.Reset()
 	ipt.policyIndex.Reset()
 	ipt.ingressPorts.Reset()
 	ipt.ingressFrom.Reset()
@@ -126,6 +129,7 @@ func (ipt *iptableBuffer) FinalizeRules() {
 		writeLine(ipt.policyIndex, "-X", string(chainName))
 	}
 	ipt.filterRules.Write(ipt.filterChains.Bytes())
+	ipt.filterRules.Write(ipt.policyCommon.Bytes())
 	ipt.filterRules.Write(ipt.policyIndex.Bytes())
 	ipt.filterRules.Write(ipt.ingressPorts.Bytes())
 	ipt.filterRules.Write(ipt.ingressFrom.Bytes())
@@ -163,24 +167,57 @@ func (ipt *iptableBuffer) CreateFilterChain(chainName string) {
 	}
 }
 
+func (ipt *iptableBuffer) renderIngressCommon(s *Server) {
+	// Add jump from MULTI-INGRESS
+	writeLine(ipt.policyIndex, "-A", ingressChain, "-j", ingressCommonChain)
+
+	if ipt.isIPv6 {
+		if s.Options.acceptICMPv6 {
+			// Allow incoming ICMPv6 traffic
+			writeLine(ipt.policyCommon, "-A", ingressCommonChain, "-p icmpv6 -j ACCEPT")
+		}
+
+		// add source prefix whitelist
+		if len(s.Options.allowIPv6SrcPrefix) != 0 {
+			for _, addr := range s.Options.allowIPv6SrcPrefix {
+				writeLine(ipt.policyCommon, "-A", ingressCommonChain,
+					"-s", strings.TrimSpace(addr), "-j ACCEPT")
+			}
+		}
+
+		// add destination prefix whitelist
+		if len(s.Options.allowIPv6DstPrefix) != 0 {
+			for _, addr := range s.Options.allowIPv6DstPrefix {
+				writeLine(ipt.policyCommon, "-A", ingressCommonChain,
+					"-d", strings.TrimSpace(addr), "-j ACCEPT")
+			}
+		}
+
+		// add custom rules
+		if s.Options.customIPv6IngressRule != nil {
+			for _, rule := range s.Options.customIPv6IngressRule {
+				writeLine(ipt.policyCommon, "-A", ingressCommonChain, rule)
+			}
+		}
+	} else { // IPv4
+		if s.Options.acceptICMP {
+			// Allow incoming ICMPv6 traffic to let Neighbor Discovery Protocol work (RFC4861)
+			writeLine(ipt.policyCommon, "-A", ingressCommonChain, "-p icmp -j ACCEPT")
+		}
+
+		// add custom rules
+		if s.Options.customIPv4IngressRule != nil {
+			for _, rule := range s.Options.customIPv4IngressRule {
+				writeLine(ipt.policyCommon, "-A", ingressCommonChain, rule)
+			}
+		}
+	}
+	writeLine(ipt.policyCommon, "-A", ingressCommonChain, "-m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT")
+}
+
 func (ipt *iptableBuffer) renderIngress(s *Server, podInfo *controllers.PodInfo, idx int, policy *multiv1beta1.MultiNetworkPolicy, policyNetworks []string) {
 	chainName := fmt.Sprintf("MULTI-%d-INGRESS", idx)
 	ipt.CreateFilterChain(chainName)
-
-	ingresses := policy.Spec.Ingress
-	if idx == 0 {
-		if ipt.isIPv6 {
-			// Allow incoming ICMPv6 traffic to let Neighbor Discovery Protocol work (RFC4861)
-			writeLine(ipt.policyIndex, "-A", ingressCommonChain, "-p icmpv6 --icmpv6-type neighbor-solicitation -j ACCEPT")
-			writeLine(ipt.policyIndex, "-A", ingressCommonChain, "-p icmpv6 --icmpv6-type neighbor-advertisement -j ACCEPT")
-			writeLine(ipt.policyIndex, "-A", ingressCommonChain, "-p icmpv6 --icmpv6-type router-advertisement -j ACCEPT")
-			writeLine(ipt.policyIndex, "-A", ingressCommonChain, "-p icmpv6 --icmpv6-type redirect -j ACCEPT")
-
-			// Allow DHCPv6 incoming packets (RFC8415)
-			writeLine(ipt.policyIndex, "-A", ingressCommonChain, "-m udp -p udp --dport 546 -d fe80::/64 -j ACCEPT")
-		}
-		writeLine(ipt.policyIndex, "-A", ingressCommonChain, "-m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT")
-	}
 
 	for _, podIntf := range podInfo.Interfaces {
 		if podIntf.CheckPolicyNetwork(policyNetworks) {
@@ -193,7 +230,7 @@ func (ipt *iptableBuffer) renderIngress(s *Server, podInfo *controllers.PodInfo,
 		}
 	}
 
-	for n, ingress := range ingresses {
+	for n, ingress := range policy.Spec.Ingress {
 		writeLine(ipt.policyIndex, "-A", chainName,
 			"-j", "MARK", "--set-xmark 0x0/0x30000")
 		ipt.renderIngressPorts(s, podInfo, idx, n, ingress.Ports, policyNetworks)
@@ -359,24 +396,57 @@ func (ipt *iptableBuffer) renderIngressFrom(s *Server, podInfo *controllers.PodI
 	return
 }
 
+func (ipt *iptableBuffer) renderEgressCommon(s *Server) {
+	// Add jump from MULTI-EGRESS
+	writeLine(ipt.policyIndex, "-A", egressChain, "-j", egressCommonChain)
+	if ipt.isIPv6 {
+		if s.Options.acceptICMPv6 {
+			// Allow outgoing ICMPv6 traffic
+			writeLine(ipt.policyCommon, "-A", egressCommonChain, "-p icmpv6 -j ACCEPT")
+		}
+
+		// add source prefix whitelist
+		if s.Options.allowIPv6SrcPrefix != nil {
+			for _, addr := range s.Options.allowIPv6SrcPrefix {
+				writeLine(ipt.policyCommon, "-A", egressCommonChain,
+					"-s", strings.TrimSpace(addr), "-j ACCEPT")
+			}
+		}
+
+		// add destination prefix whitelist
+		if s.Options.allowIPv6DstPrefix != nil {
+			for _, addr := range s.Options.allowIPv6DstPrefix {
+				writeLine(ipt.policyCommon, "-A", egressCommonChain,
+					"-d", strings.TrimSpace(addr), "-j ACCEPT")
+			}
+		}
+
+		// add custom rules
+		if s.Options.customIPv6EgressRule != nil {
+			for _, rule := range s.Options.customIPv6EgressRule {
+				writeLine(ipt.policyCommon, "-A", egressCommonChain, rule)
+			}
+		}
+	} else { // IPv4
+		if s.Options.acceptICMP {
+			// Allow outgoing ICMP traffic
+			writeLine(ipt.policyCommon, "-A", egressCommonChain, "-p icmp -j ACCEPT")
+		}
+
+		// add custom rules
+		if s.Options.customIPv4EgressRule != nil {
+			for _, rule := range s.Options.customIPv4EgressRule {
+				writeLine(ipt.policyCommon, "-A", egressCommonChain, rule)
+			}
+		}
+	}
+
+	writeLine(ipt.policyCommon, "-A", egressCommonChain, "-m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT")
+}
+
 func (ipt *iptableBuffer) renderEgress(s *Server, podInfo *controllers.PodInfo, idx int, policy *multiv1beta1.MultiNetworkPolicy, policyNetworks []string) {
 	chainName := fmt.Sprintf("MULTI-%d-EGRESS", idx)
 	ipt.CreateFilterChain(chainName)
-
-	egresses := policy.Spec.Egress
-	if idx == 0 {
-		if ipt.isIPv6 {
-			// Allow outgoing ICMPv6 traffic to let Neighbor Discovery Protocol work
-			writeLine(ipt.policyIndex, "-A", egressCommonChain, "-p icmpv6 --icmpv6-type neighbor-solicitation -j ACCEPT")
-			writeLine(ipt.policyIndex, "-A", egressCommonChain, "-p icmpv6 --icmpv6-type neighbor-advertisement -j ACCEPT")
-			writeLine(ipt.policyIndex, "-A", egressCommonChain, "-p icmpv6 --icmpv6-type router-solicitation -j ACCEPT")
-
-			// Allow DHCPv6 outgoing packets (RFC8415)
-			writeLine(ipt.policyIndex, "-A", egressCommonChain, "-m udp -p udp --dport 547 -d ff02::1:2 -j ACCEPT")
-		}
-
-		writeLine(ipt.policyIndex, "-A", egressCommonChain, "-m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT")
-	}
 
 	for _, podIntf := range podInfo.Interfaces {
 		if podIntf.CheckPolicyNetwork(policyNetworks) {
@@ -388,7 +458,8 @@ func (ipt *iptableBuffer) renderEgress(s *Server, podInfo *controllers.PodInfo, 
 				"-m", "mark", "--mark", "0x30000/0x30000", "-j", "RETURN")
 		}
 	}
-	for n, egress := range egresses {
+
+	for n, egress := range policy.Spec.Egress {
 		writeLine(ipt.policyIndex, "-A", chainName, "-j", "MARK", "--set-xmark 0x0/0x30000")
 		ipt.renderEgressPorts(s, podInfo, idx, n, egress.Ports, policyNetworks)
 		ipt.renderEgressTo(s, podInfo, idx, n, egress.To, policyNetworks)
