@@ -941,7 +941,6 @@ COMMIT
 -A MULTI-EGRESS -j MULTI-EGRESS-COMMON
 COMMIT
 `
-		fmt.Fprintf(os.Stderr, "XXX: %s", buf4.filterRules.String())
 		Expect(buf4.filterRules.String()).To(Equal(finalizedRules4))
 
 		// check IPv6 case

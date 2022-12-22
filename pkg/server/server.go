@@ -512,14 +512,18 @@ func (s *Server) backupIptablesRules(pod *v1.Pod, suffix string, iptables utilip
 		fileExt = "ip6tables"
 	}
 	file, err := os.Create(fmt.Sprintf("%s/%s.%s", podIptables, suffix, fileExt))
+	if err != nil {
+		klog.Errorf("cannot create pod file %s/%s.%s: %v", podIptables, suffix, fileExt, err)
+		return err
+	}
 	defer file.Close()
 	var buffer bytes.Buffer
 
 	// store iptable result to file
 	//XXX: need error handling? (see kube-proxy)
-	err = iptables.SaveInto(utiliptables.TableMangle, &buffer)
-	err = iptables.SaveInto(utiliptables.TableFilter, &buffer)
-	err = iptables.SaveInto(utiliptables.TableNAT, &buffer)
+	_ = iptables.SaveInto(utiliptables.TableMangle, &buffer)
+	_ = iptables.SaveInto(utiliptables.TableFilter, &buffer)
+	_ = iptables.SaveInto(utiliptables.TableNAT, &buffer)
 	_, err = buffer.WriteTo(file)
 
 	return err
