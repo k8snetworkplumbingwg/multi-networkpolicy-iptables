@@ -23,6 +23,8 @@ setup() {
 }
 
 @test "check generated iptables rules" {
+	# wait for sync
+	sleep 3
 	# check pod-server has multi-networkpolicy iptables rules for ingress
         run kubectl -n test-simple-v4-ingress exec pod-server -- sh -c "iptables-save | grep MULTI-0-INGRESS"
 	[ "$status" -eq  "0" ]
