@@ -22,7 +22,7 @@ Some IPv6 networks may require accepting traffic from/to specific address prefix
 
 #### Add custom iptables/ip6tables rules
 
-Some IPv4/v6 network may require to accept some specific traffic (e.g. DHCP). You can add custom iptable rules in ingress/egress for IPv4/v6 network to accept such traffics, by 
+Some IPv4/v6 networks may require accepting some specific traffic (e.g. DHCP). You can add custom iptable rules in ingress/egress for IPv4/v6 network to accept such traffics, by 
 
 - `--custom-v4-ingress-rule-file`
 - `--custom-v4-egress-rule-file`
