@@ -293,7 +293,9 @@ func NewServer(o *Options) (*Server, error) {
 // Sync ...
 func (s *Server) Sync() {
 	klog.V(4).Infof("Sync Done!")
-	s.syncRunner.Run()
+	if s.syncRunner != nil {
+		s.syncRunner.Run()
+	}
 }
 
 // AllSynced ...
@@ -481,8 +483,7 @@ func (s *Server) syncMultiPolicy() {
 
 			klog.V(8).Infof("pod: %s/%s %s", p.Namespace, p.Name, netnsPath)
 			_ = netns.Do(func(_ ns.NetNS) error {
-				err := s.generatePolicyRules(p, podInfo)
-				s.backupIptablesRules(p, "current")
+				err := s.generatePolicyRulesForPod(p, podInfo)
 				return err
 			})
 		} else {
@@ -491,7 +492,7 @@ func (s *Server) syncMultiPolicy() {
 	}
 }
 
-func (s *Server) backupIptablesRules(pod *v1.Pod, suffix string) error {
+func (s *Server) backupIptablesRules(pod *v1.Pod, suffix string, iptables utiliptables.Interface) error {
 	// skip it if no podiptables option
 	if s.Options.podIptables == "" {
 		return nil
@@ -506,46 +507,80 @@ func (s *Server) backupIptablesRules(pod *v1.Pod, suffix string) error {
 			return err
 		}
 	}
-	file, err := os.Create(fmt.Sprintf("%s/%s.iptables", podIptables, suffix))
+	fileExt := "iptables"
+	if iptables.IsIPv6() {
+		fileExt = "ip6tables"
+	}
+	file, err := os.Create(fmt.Sprintf("%s/%s.%s", podIptables, suffix, fileExt))
+	if err != nil {
+		klog.Errorf("cannot create pod file %s/%s.%s: %v", podIptables, suffix, fileExt, err)
+		return err
+	}
 	defer file.Close()
 	var buffer bytes.Buffer
 
 	// store iptable result to file
 	//XXX: need error handling? (see kube-proxy)
-	err = s.ip4Tables.SaveInto(utiliptables.TableMangle, &buffer)
-	err = s.ip4Tables.SaveInto(utiliptables.TableFilter, &buffer)
-	err = s.ip4Tables.SaveInto(utiliptables.TableNAT, &buffer)
+	_ = iptables.SaveInto(utiliptables.TableMangle, &buffer)
+	_ = iptables.SaveInto(utiliptables.TableFilter, &buffer)
+	_ = iptables.SaveInto(utiliptables.TableNAT, &buffer)
 	_, err = buffer.WriteTo(file)
 
 	return err
 }
 
 const (
-	ingressChain = "MULTI-INGRESS"
-	egressChain  = "MULTI-EGRESS"
+	ingressChain       = "MULTI-INGRESS"
+	egressChain        = "MULTI-EGRESS"
+	ingressCommonChain = "MULTI-INGRESS-COMMON"
+	egressCommonChain  = "MULTI-EGRESS-COMMON"
 )
 
-func (s *Server) generatePolicyRules(pod *v1.Pod, podInfo *controllers.PodInfo) error {
-	klog.V(8).Infof("Generate rules for Pod: %v/%v\n", podInfo.Namespace, podInfo.Name)
-	// -t filter -N MULTI-POLICY-INGRESS # ensure chain
-	s.ip4Tables.EnsureChain(utiliptables.TableFilter, ingressChain)
-	// -t filter -N MULTI-POLICY-EGRESS # ensure chain
-	s.ip4Tables.EnsureChain(utiliptables.TableFilter, egressChain)
-
-	for _, multiIF := range podInfo.Interfaces {
-		//    -A INPUT -j MULTI-POLICY-INGRESS # ensure rules
-		s.ip4Tables.EnsureRule(
-			utiliptables.Prepend, utiliptables.TableFilter, "INPUT", "-i", multiIF.InterfaceName, "-j", ingressChain)
-		//    -A OUTPUT -j MULTI-POLICY-EGRESS # ensure rules
-		s.ip4Tables.EnsureRule(
-			utiliptables.Prepend, utiliptables.TableFilter, "OUTPUT", "-o", multiIF.InterfaceName, "-j", egressChain)
-		//    -A PREROUTING -i net1 -j RETURN # ensure rules
-		s.ip4Tables.EnsureRule(
-			utiliptables.Prepend, utiliptables.TableNAT, "PREROUTING", "-i", multiIF.InterfaceName, "-j", "RETURN")
+func (s *Server) generatePolicyRulesForPod(pod *v1.Pod, podInfo *controllers.PodInfo) error {
+	err := s.generatePolicyRulesForPodAndFamily(pod, podInfo, s.ip4Tables)
+	if err != nil {
+		return fmt.Errorf("can't generate iptables for pod [%s]: %w", podNamespacedName(pod), err)
 	}
 
+	err = s.generatePolicyRulesForPodAndFamily(pod, podInfo, s.ip6Tables)
+	if err != nil {
+		return fmt.Errorf("can't generate ip6tables for pod [%s]: %w", podNamespacedName(pod), err)
+	}
+
+	return nil
+}
+
+func (s *Server) generatePolicyRulesForPodAndFamily(pod *v1.Pod, podInfo *controllers.PodInfo, iptables utiliptables.Interface) error {
+	klog.V(8).Infof("Generate rules for Pod: %v/%v\n", podInfo.Namespace, podInfo.Name)
+	// -t filter -N MULTI-INGRESS # ensure chain
+	iptables.EnsureChain(utiliptables.TableFilter, ingressChain)
+	// -t filter -N MULTI-EGRESS # ensure chain
+	iptables.EnsureChain(utiliptables.TableFilter, egressChain)
+	// -t filter -N MULTI-INGRESS-COMMON # ensure chain
+	iptables.EnsureChain(utiliptables.TableFilter, ingressCommonChain)
+	// -t filter -N MULTI-EGRESS-COMMON # ensure chain
+	iptables.EnsureChain(utiliptables.TableFilter, egressCommonChain)
+
+	for _, multiIF := range podInfo.Interfaces {
+		//    -A INPUT -j MULTI-INGRESS # ensure rules
+		iptables.EnsureRule(
+			utiliptables.Prepend, utiliptables.TableFilter, "INPUT", "-i", multiIF.InterfaceName, "-j", ingressChain)
+		//    -A OUTPUT -j MULTI-EGRESS # ensure rules
+		iptables.EnsureRule(
+			utiliptables.Prepend, utiliptables.TableFilter, "OUTPUT", "-o", multiIF.InterfaceName, "-j", egressChain)
+		//    -A PREROUTING -i net1 -j RETURN # ensure rules
+		iptables.EnsureRule(
+			utiliptables.Prepend, utiliptables.TableNAT, "PREROUTING", "-i", multiIF.InterfaceName, "-j", "RETURN")
+	}
+	//    -A MULTI-INGRESS -j MULTI-INGRESS-COMMON # ensure rules
+	iptables.EnsureRule(
+		utiliptables.Prepend, utiliptables.TableFilter, ingressChain, "-j", ingressCommonChain)
+	//    -A MULTI-EGRESS -j MULTI-EGRESS-COMMON # ensure rules
+	iptables.EnsureRule(
+		utiliptables.Prepend, utiliptables.TableFilter, egressChain, "-j", egressCommonChain)
+
 	iptableBuffer := newIptableBuffer()
-	iptableBuffer.Init(s.ip4Tables)
+	iptableBuffer.Init(iptables)
 	iptableBuffer.Reset()
 
 	idx := 0
@@ -598,10 +633,12 @@ func (s *Server) generatePolicyRules(pod *v1.Pod, podInfo *controllers.PodInfo) 
 
 		if podInfo.CheckPolicyNetwork(policyNetworks) {
 			if ingressEnable {
+				iptableBuffer.renderIngressCommon(s)
 				iptableBuffer.renderIngress(s, podInfo, idx, policy, policyNetworks)
 				ingressRendered++
 			}
 			if egressEnable {
+				iptableBuffer.renderEgressCommon(s)
 				iptableBuffer.renderEgress(s, podInfo, idx, policy, policyNetworks)
 				egressRendered++
 			}
@@ -616,21 +653,28 @@ func (s *Server) generatePolicyRules(pod *v1.Pod, podInfo *controllers.PodInfo) 
 	}
 
 	if !iptableBuffer.IsUsed() {
-		iptableBuffer.Init(s.ip4Tables)
+		iptableBuffer.Init(iptables)
 	}
 
 	iptableBuffer.FinalizeRules()
 
 	/* store generated iptables rules if podIptables is enabled */
 	if s.Options.podIptables != "" {
-		filePath := fmt.Sprintf("%s/%s/networkpolicy.iptables", s.Options.podIptables, pod.UID)
-		iptableBuffer.SaveRules(filePath)
+		if iptables.IsIPv6() {
+			filePath := fmt.Sprintf("%s/%s/networkpolicy.ip6tables", s.Options.podIptables, pod.UID)
+			iptableBuffer.SaveRules(filePath)
+		} else {
+			filePath := fmt.Sprintf("%s/%s/networkpolicy.iptables", s.Options.podIptables, pod.UID)
+			iptableBuffer.SaveRules(filePath)
+		}
 	}
 
-	if err := iptableBuffer.SyncRules(s.ip4Tables); err != nil {
+	if err := iptableBuffer.SyncRules(iptables); err != nil {
 		klog.Errorf("sync rules failed for pod [%s]: %v", podNamespacedName(pod), err)
 		return err
 	}
+
+	s.backupIptablesRules(pod, "current", iptables)
 
 	return nil
 }

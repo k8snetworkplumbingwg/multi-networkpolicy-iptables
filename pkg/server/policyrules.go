@@ -47,6 +47,7 @@ type iptableBuffer struct {
 	currentFilter map[utiliptables.Chain][]byte
 	currentChain  map[utiliptables.Chain]bool
 	activeChain   map[utiliptables.Chain]bool
+	policyCommon  *bytes.Buffer
 	policyIndex   *bytes.Buffer
 	ingressPorts  *bytes.Buffer
 	ingressFrom   *bytes.Buffer
@@ -54,11 +55,13 @@ type iptableBuffer struct {
 	egressTo      *bytes.Buffer
 	filterChains  *bytes.Buffer
 	filterRules   *bytes.Buffer
+	isIPv6        bool
 }
 
 func newIptableBuffer() *iptableBuffer {
 	buf := &iptableBuffer{
 		currentFilter: make(map[utiliptables.Chain][]byte),
+		policyCommon:  bytes.NewBuffer(nil),
 		policyIndex:   bytes.NewBuffer(nil),
 		ingressPorts:  bytes.NewBuffer(nil),
 		ingressFrom:   bytes.NewBuffer(nil),
@@ -73,11 +76,13 @@ func newIptableBuffer() *iptableBuffer {
 }
 
 func (ipt *iptableBuffer) Init(iptables utiliptables.Interface) {
+	ipt.isIPv6 = iptables.IsIPv6()
+
 	tmpbuf := bytes.NewBuffer(nil)
 	tmpbuf.Reset()
 	err := iptables.SaveInto(utiliptables.TableFilter, tmpbuf)
 	if err != nil {
-		klog.Error("failed to get iptable filter")
+		klog.Errorf("failed to get iptable filter: %v", err)
 		return
 	}
 	ipt.currentFilter = utiliptables.GetChainLines(utiliptables.TableFilter, tmpbuf.Bytes())
@@ -93,7 +98,7 @@ func (ipt *iptableBuffer) Init(iptables utiliptables.Interface) {
 
 	// Make sure we keep stats for the top-level chains, if they existed
 	// (which most should have because we created them above).
-	for _, chainName := range []utiliptables.Chain{ingressChain, egressChain} {
+	for _, chainName := range []utiliptables.Chain{ingressChain, ingressCommonChain, egressChain, egressCommonChain} {
 		ipt.activeChain[chainName] = true
 		if chain, ok := ipt.currentFilter[chainName]; ok {
 			writeBytesLine(ipt.filterChains, chain)
@@ -105,6 +110,7 @@ func (ipt *iptableBuffer) Init(iptables utiliptables.Interface) {
 
 // Reset clears iptableBuffer
 func (ipt *iptableBuffer) Reset() {
+	ipt.policyCommon.Reset()
 	ipt.policyIndex.Reset()
 	ipt.ingressPorts.Reset()
 	ipt.ingressFrom.Reset()
@@ -123,6 +129,7 @@ func (ipt *iptableBuffer) FinalizeRules() {
 		writeLine(ipt.policyIndex, "-X", string(chainName))
 	}
 	ipt.filterRules.Write(ipt.filterChains.Bytes())
+	ipt.filterRules.Write(ipt.policyCommon.Bytes())
 	ipt.filterRules.Write(ipt.policyIndex.Bytes())
 	ipt.filterRules.Write(ipt.ingressPorts.Bytes())
 	ipt.filterRules.Write(ipt.ingressFrom.Bytes())
@@ -160,14 +167,58 @@ func (ipt *iptableBuffer) CreateFilterChain(chainName string) {
 	}
 }
 
+func (ipt *iptableBuffer) renderIngressCommon(s *Server) {
+	// Add jump from MULTI-INGRESS
+	writeLine(ipt.policyIndex, "-A", ingressChain, "-j", ingressCommonChain)
+
+	if ipt.isIPv6 {
+		if s.Options.acceptICMPv6 {
+			// Allow incoming ICMPv6 traffic
+			writeLine(ipt.policyCommon, "-A", ingressCommonChain, "-p icmpv6 -j ACCEPT")
+		}
+
+		// add source prefix whitelist
+		if len(s.Options.allowIPv6SrcPrefix) != 0 {
+			for _, addr := range s.Options.allowIPv6SrcPrefix {
+				writeLine(ipt.policyCommon, "-A", ingressCommonChain,
+					"-s", strings.TrimSpace(addr), "-j ACCEPT")
+			}
+		}
+
+		// add destination prefix whitelist
+		if len(s.Options.allowIPv6DstPrefix) != 0 {
+			for _, addr := range s.Options.allowIPv6DstPrefix {
+				writeLine(ipt.policyCommon, "-A", ingressCommonChain,
+					"-d", strings.TrimSpace(addr), "-j ACCEPT")
+			}
+		}
+
+		// add custom rules
+		if s.Options.customIPv6IngressRule != nil {
+			for _, rule := range s.Options.customIPv6IngressRule {
+				writeLine(ipt.policyCommon, "-A", ingressCommonChain, rule)
+			}
+		}
+	} else { // IPv4
+		if s.Options.acceptICMP {
+			// Allow incoming ICMPv6 traffic to let Neighbor Discovery Protocol work (RFC4861)
+			writeLine(ipt.policyCommon, "-A", ingressCommonChain, "-p icmp -j ACCEPT")
+		}
+
+		// add custom rules
+		if s.Options.customIPv4IngressRule != nil {
+			for _, rule := range s.Options.customIPv4IngressRule {
+				writeLine(ipt.policyCommon, "-A", ingressCommonChain, rule)
+			}
+		}
+	}
+	writeLine(ipt.policyCommon, "-A", ingressCommonChain, "-m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT")
+}
+
 func (ipt *iptableBuffer) renderIngress(s *Server, podInfo *controllers.PodInfo, idx int, policy *multiv1beta1.MultiNetworkPolicy, policyNetworks []string) {
 	chainName := fmt.Sprintf("MULTI-%d-INGRESS", idx)
 	ipt.CreateFilterChain(chainName)
 
-	ingresses := policy.Spec.Ingress
-	if idx == 0 {
-		writeLine(ipt.policyIndex, "-A", ingressChain, "-m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT")
-	}
 	for _, podIntf := range podInfo.Interfaces {
 		if podIntf.CheckPolicyNetwork(policyNetworks) {
 			comment := fmt.Sprintf("\"policy:%s net-attach-def:%s\"", policy.Name, podIntf.NetattachName)
@@ -179,7 +230,7 @@ func (ipt *iptableBuffer) renderIngress(s *Server, podInfo *controllers.PodInfo,
 		}
 	}
 
-	for n, ingress := range ingresses {
+	for n, ingress := range policy.Spec.Ingress {
 		writeLine(ipt.policyIndex, "-A", chainName,
 			"-j", "MARK", "--set-xmark 0x0/0x30000")
 		ipt.renderIngressPorts(s, podInfo, idx, n, ingress.Ports, policyNetworks)
@@ -277,16 +328,20 @@ func (ipt *iptableBuffer) renderIngressFrom(s *Server, podInfo *controllers.PodI
 							continue
 						}
 						for _, ip := range sPodIntf.IPs {
-							writeLine(ipt.ingressFrom, "-A", chainName,
-								"-i", podIntf.InterfaceName, "-s", ip,
-								"-j", "MARK", "--set-xmark", "0x20000/0x20000")
-							validPeers++
+							if ipt.isIPFamilyCompatible(ip) {
+								writeLine(ipt.ingressFrom, "-A", chainName,
+									"-i", podIntf.InterfaceName, "-s", ip,
+									"-j", "MARK", "--set-xmark", "0x20000/0x20000")
+								validPeers++
+							}
 						}
 						// ingress should accept reverse path
 						for _, ip := range podIntf.IPs {
-							writeLine(ipt.ingressFrom, "-A", chainName,
-								"-i", podIntf.InterfaceName, "-s", ip,
-								"-j", "MARK", "--set-xmark", "0x20000/0x20000")
+							if ipt.isIPFamilyCompatible(ip) {
+								writeLine(ipt.ingressFrom, "-A", chainName,
+									"-i", podIntf.InterfaceName, "-s", ip,
+									"-j", "MARK", "--set-xmark", "0x20000/0x20000")
+							}
 						}
 					}
 				}
@@ -297,8 +352,21 @@ func (ipt *iptableBuffer) renderIngressFrom(s *Server, podInfo *controllers.PodI
 					if !podIntf.CheckPolicyNetwork(policyNetworks) {
 						continue
 					}
+					if ipt.isIPFamilyCompatible(except) {
+						writeLine(ipt.ingressFrom, "-A", chainName,
+							"-i", podIntf.InterfaceName, "-s", except, "-j", "DROP")
+						validPeers++
+					}
+				}
+			}
+			for _, podIntf := range podInfo.Interfaces {
+				if !podIntf.CheckPolicyNetwork(policyNetworks) {
+					continue
+				}
+				if ipt.isIPFamilyCompatible(peer.IPBlock.CIDR) {
 					writeLine(ipt.ingressFrom, "-A", chainName,
-						"-i", podIntf.InterfaceName, "-s", except, "-j", "DROP")
+						"-i", podIntf.InterfaceName, "-s", peer.IPBlock.CIDR,
+						"-j", "MARK", "--set-xmark", "0x20000/0x20000")
 					validPeers++
 				}
 			}
@@ -306,19 +374,12 @@ func (ipt *iptableBuffer) renderIngressFrom(s *Server, podInfo *controllers.PodI
 				if !podIntf.CheckPolicyNetwork(policyNetworks) {
 					continue
 				}
-				writeLine(ipt.ingressFrom, "-A", chainName,
-					"-i", podIntf.InterfaceName, "-s", peer.IPBlock.CIDR,
-					"-j", "MARK", "--set-xmark", "0x20000/0x20000")
-				validPeers++
-			}
-			for _, podIntf := range podInfo.Interfaces {
-				if !podIntf.CheckPolicyNetwork(policyNetworks) {
-					continue
-				}
 				for _, ip := range podIntf.IPs {
-					writeLine(ipt.ingressFrom, "-A", chainName,
-						"-i", podIntf.InterfaceName, "-s", ip,
-						"-j", "MARK", "--set-xmark", "0x20000/0x20000")
+					if ipt.isIPFamilyCompatible(ip) {
+						writeLine(ipt.ingressFrom, "-A", chainName,
+							"-i", podIntf.InterfaceName, "-s", ip,
+							"-j", "MARK", "--set-xmark", "0x20000/0x20000")
+					}
 				}
 			}
 		} else {
@@ -335,14 +396,58 @@ func (ipt *iptableBuffer) renderIngressFrom(s *Server, podInfo *controllers.PodI
 	return
 }
 
+func (ipt *iptableBuffer) renderEgressCommon(s *Server) {
+	// Add jump from MULTI-EGRESS
+	writeLine(ipt.policyIndex, "-A", egressChain, "-j", egressCommonChain)
+	if ipt.isIPv6 {
+		if s.Options.acceptICMPv6 {
+			// Allow outgoing ICMPv6 traffic
+			writeLine(ipt.policyCommon, "-A", egressCommonChain, "-p icmpv6 -j ACCEPT")
+		}
+
+		// add source prefix whitelist
+		if s.Options.allowIPv6SrcPrefix != nil {
+			for _, addr := range s.Options.allowIPv6SrcPrefix {
+				writeLine(ipt.policyCommon, "-A", egressCommonChain,
+					"-s", strings.TrimSpace(addr), "-j ACCEPT")
+			}
+		}
+
+		// add destination prefix whitelist
+		if s.Options.allowIPv6DstPrefix != nil {
+			for _, addr := range s.Options.allowIPv6DstPrefix {
+				writeLine(ipt.policyCommon, "-A", egressCommonChain,
+					"-d", strings.TrimSpace(addr), "-j ACCEPT")
+			}
+		}
+
+		// add custom rules
+		if s.Options.customIPv6EgressRule != nil {
+			for _, rule := range s.Options.customIPv6EgressRule {
+				writeLine(ipt.policyCommon, "-A", egressCommonChain, rule)
+			}
+		}
+	} else { // IPv4
+		if s.Options.acceptICMP {
+			// Allow outgoing ICMP traffic
+			writeLine(ipt.policyCommon, "-A", egressCommonChain, "-p icmp -j ACCEPT")
+		}
+
+		// add custom rules
+		if s.Options.customIPv4EgressRule != nil {
+			for _, rule := range s.Options.customIPv4EgressRule {
+				writeLine(ipt.policyCommon, "-A", egressCommonChain, rule)
+			}
+		}
+	}
+
+	writeLine(ipt.policyCommon, "-A", egressCommonChain, "-m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT")
+}
+
 func (ipt *iptableBuffer) renderEgress(s *Server, podInfo *controllers.PodInfo, idx int, policy *multiv1beta1.MultiNetworkPolicy, policyNetworks []string) {
 	chainName := fmt.Sprintf("MULTI-%d-EGRESS", idx)
 	ipt.CreateFilterChain(chainName)
 
-	egresses := policy.Spec.Egress
-	if idx == 0 {
-		writeLine(ipt.policyIndex, "-A", egressChain, "-m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT")
-	}
 	for _, podIntf := range podInfo.Interfaces {
 		if podIntf.CheckPolicyNetwork(policyNetworks) {
 			comment := fmt.Sprintf("\"policy:%s net-attach-def:%s\"", policy.Name, podIntf.NetattachName)
@@ -353,7 +458,8 @@ func (ipt *iptableBuffer) renderEgress(s *Server, podInfo *controllers.PodInfo, 
 				"-m", "mark", "--mark", "0x30000/0x30000", "-j", "RETURN")
 		}
 	}
-	for n, egress := range egresses {
+
+	for n, egress := range policy.Spec.Egress {
 		writeLine(ipt.policyIndex, "-A", chainName, "-j", "MARK", "--set-xmark 0x0/0x30000")
 		ipt.renderEgressPorts(s, podInfo, idx, n, egress.Ports, policyNetworks)
 		ipt.renderEgressTo(s, podInfo, idx, n, egress.To, policyNetworks)
@@ -451,16 +557,20 @@ func (ipt *iptableBuffer) renderEgressTo(s *Server, podInfo *controllers.PodInfo
 							continue
 						}
 						for _, ip := range sPodIntf.IPs {
-							writeLine(ipt.egressTo, "-A", chainName,
-								"-o", podIntf.InterfaceName, "-d", ip,
-								"-j", "MARK", "--set-xmark", "0x20000/0x20000")
-							validPeers++
+							if ipt.isIPFamilyCompatible(ip) {
+								writeLine(ipt.egressTo, "-A", chainName,
+									"-o", podIntf.InterfaceName, "-d", ip,
+									"-j", "MARK", "--set-xmark", "0x20000/0x20000")
+								validPeers++
+							}
 						}
 						// egress should accept reverse path
 						for _, ip := range podIntf.IPs {
-							writeLine(ipt.egressTo, "-A", chainName,
-								"-o", podIntf.InterfaceName, "-d", ip,
-								"-j", "MARK", "--set-xmark", "0x20000/0x20000")
+							if ipt.isIPFamilyCompatible(ip) {
+								writeLine(ipt.egressTo, "-A", chainName,
+									"-o", podIntf.InterfaceName, "-d", ip,
+									"-j", "MARK", "--set-xmark", "0x20000/0x20000")
+							}
 						}
 					}
 				}
@@ -471,19 +581,23 @@ func (ipt *iptableBuffer) renderEgressTo(s *Server, podInfo *controllers.PodInfo
 					if !multi.CheckPolicyNetwork(policyNetworks) {
 						continue
 					}
-					writeLine(ipt.egressTo, "-A", chainName,
-						"-o", multi.InterfaceName, "-d", except, "-j", "DROP")
-					validPeers++
+					if ipt.isIPFamilyCompatible(except) {
+						writeLine(ipt.egressTo, "-A", chainName,
+							"-o", multi.InterfaceName, "-d", except, "-j", "DROP")
+						validPeers++
+					}
 				}
 			}
 			for _, podIntf := range podInfo.Interfaces {
 				if !podIntf.CheckPolicyNetwork(policyNetworks) {
 					continue
 				}
-				writeLine(ipt.egressTo, "-A", chainName,
-					"-o", podIntf.InterfaceName, "-d", peer.IPBlock.CIDR,
-					"-j", "MARK", "--set-xmark", "0x20000/0x20000")
-				validPeers++
+				if ipt.isIPFamilyCompatible(peer.IPBlock.CIDR) {
+					writeLine(ipt.egressTo, "-A", chainName,
+						"-o", podIntf.InterfaceName, "-d", peer.IPBlock.CIDR,
+						"-j", "MARK", "--set-xmark", "0x20000/0x20000")
+					validPeers++
+				}
 			}
 			// egress should accept reverse path
 			for _, podIntf := range podInfo.Interfaces {
@@ -491,9 +605,11 @@ func (ipt *iptableBuffer) renderEgressTo(s *Server, podInfo *controllers.PodInfo
 					continue
 				}
 				for _, ip := range podIntf.IPs {
-					writeLine(ipt.egressTo, "-A", chainName,
-						"-o", podIntf.InterfaceName, "-d", ip,
-						"-j", "MARK", "--set-xmark", "0x20000/0x20000")
+					if ipt.isIPFamilyCompatible(ip) {
+						writeLine(ipt.egressTo, "-A", chainName,
+							"-o", podIntf.InterfaceName, "-d", ip,
+							"-j", "MARK", "--set-xmark", "0x20000/0x20000")
+					}
 				}
 			}
 		} else {
@@ -508,6 +624,18 @@ func (ipt *iptableBuffer) renderEgressTo(s *Server, podInfo *controllers.PodInfo
 			"-j", "MARK", "--set-xmark", "0x20000/0x20000")
 	}
 	return
+}
+
+func (ipt *iptableBuffer) isIPFamilyCompatible(ip string) bool {
+	if ipt.isIPv6 && isAddressIPv6(ip) {
+		return true
+	}
+
+	if !ipt.isIPv6 && isAddressIPv4(ip) {
+		return true
+	}
+
+	return false
 }
 
 // Join all words with spaces, terminate with newline and write to buf.
@@ -535,4 +663,12 @@ func renderProtocol(proto *v1.Protocol) string {
 	}
 
 	return strings.ToLower(string(p))
+}
+
+func isAddressIPv6(ip string) bool {
+	return strings.Contains(ip, ":")
+}
+
+func isAddressIPv4(ip string) bool {
+	return strings.Contains(ip, ".")
 }
