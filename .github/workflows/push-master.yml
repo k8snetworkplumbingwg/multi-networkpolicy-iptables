@@ -31,7 +31,7 @@ jobs:
         uses: docker/build-push-action@v3
         with:
           push: true
-          platform: linux/arm64
+          platform: linux/amd64
           tags: |
             ghcr.io/${{ github.repository }}:latest-amd64
             ghcr.io/${{ github.repository }}:snapshot-amd64
