@@ -3,20 +3,18 @@ apiVersion: "k8s.cni.cncf.io/v1"
 kind: NetworkAttachmentDefinition
 metadata:
   namespace: default
-  name: macvlan1-stacked
-spec: 
+  name: macvlan1-ipblock-stacked
+spec:
   config: '{
             "cniVersion": "0.3.1",
-            "name": "macvlan1-stacked",
+            "name": "macvlan1-ipblock-stacked",
             "plugins": [
                 {
                     "type": "macvlan",
                     "mode": "bridge",
+                    "capabilities": {"ips": true },
                     "ipam":{
-                      "type":"host-local",
-                      "subnet":"2.2.5.0/24",
-                      "rangeStart":"2.2.5.8",
-                      "rangeEnd":"2.2.5.67"
+                      "type":"static"
                     }
                 }]
         }'
@@ -24,18 +22,22 @@ spec:
 apiVersion: v1
 kind: Namespace
 metadata:
-    name: test-stacked
+    name: test-ipblock-stacked
 ---
 # Pods
 apiVersion: v1
 kind: Pod
 metadata:
   name: pod-server
-  namespace: test-stacked
+  namespace: test-ipblock-stacked
   annotations:
-    k8s.v1.cni.cncf.io/networks: default/macvlan1-stacked
+    k8s.v1.cni.cncf.io/networks: '[{
+      "name": "macvlan1-ipblock-stacked",
+      "namespace": "default",
+      "ips": ["2.2.5.1/24"]
+      }]'
   labels:
-    app: test-stacked
+    app: test-ipblock-stacked
     name: pod-server
 spec:
   containers:
@@ -49,11 +51,15 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: pod-client-a
-  namespace: test-stacked
+  namespace: test-ipblock-stacked
   annotations:
-    k8s.v1.cni.cncf.io/networks: default/macvlan1-stacked
+    k8s.v1.cni.cncf.io/networks: '[{
+      "name": "macvlan1-ipblock-stacked",
+      "namespace": "default",
+      "ips": ["2.2.5.11/24"]
+      }]'
   labels:
-    app: test-stacked
+    app: test-ipblock-stacked
     name: pod-client-a
 spec:
   containers:
@@ -67,11 +73,15 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: pod-client-b
-  namespace: test-stacked
+  namespace: test-ipblock-stacked
   annotations:
-    k8s.v1.cni.cncf.io/networks: default/macvlan1-stacked
+    k8s.v1.cni.cncf.io/networks: '[{
+      "name": "macvlan1-ipblock-stacked",
+      "namespace": "default",
+      "ips": ["2.2.5.12/24"]
+      }]'
   labels:
-    app: test-stacked
+    app: test-ipblock-stacked
     name: pod-client-b
 spec:
   containers:
@@ -85,11 +95,15 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: pod-client-c
-  namespace: test-stacked
+  namespace: test-ipblock-stacked
   annotations:
-    k8s.v1.cni.cncf.io/networks: default/macvlan1-stacked
+    k8s.v1.cni.cncf.io/networks: '[{
+      "name": "macvlan1-ipblock-stacked",
+      "namespace": "default",
+      "ips": ["2.2.5.13/24"]
+      }]'
   labels:
-    app: test-stacked
+    app: test-ipblock-stacked
     name: pod-client-c
 spec:
   containers:
@@ -107,10 +121,10 @@ spec:
 apiVersion: k8s.cni.cncf.io/v1beta1
 kind: MultiNetworkPolicy
 metadata:
-  name: testnetwork-policy-stacked-1
-  namespace: test-stacked
+  name: testnetwork-policy-ipblock-stacked-1
+  namespace: test-ipblock-stacked
   annotations:
-    k8s.v1.cni.cncf.io/policy-for: default/macvlan1-stacked
+    k8s.v1.cni.cncf.io/policy-for: default/macvlan1-ipblock-stacked
 spec:
   podSelector:
     matchLabels:
@@ -119,17 +133,21 @@ spec:
   - Ingress
   ingress:
   - from:
-    - podSelector:
-        matchLabels:
-          name: pod-client-a
+    - ipBlock:
+        cidr: 2.2.5.11/32
 ---
+# MultiNetworkPolicies
+# this policy accepts ingress trafic from pod-client-a to pod-server
+# next policy accepts ingress trafic from pod-client-b to pod-server
+# as a result, these policies accepts ingress traffic from pod-client-a
+# or from pod-client-b, to pod-server.
 apiVersion: k8s.cni.cncf.io/v1beta1
 kind: MultiNetworkPolicy
 metadata:
-  name: testnetwork-policy-stacked-2
-  namespace: test-stacked
+  name: testnetwork-policy-ipblock-stacked-2
+  namespace: test-ipblock-stacked
   annotations:
-    k8s.v1.cni.cncf.io/policy-for: default/macvlan1-stacked
+    k8s.v1.cni.cncf.io/policy-for: default/macvlan1-ipblock-stacked
 spec:
   podSelector:
     matchLabels:
@@ -138,6 +156,5 @@ spec:
   - Ingress
   ingress:
   - from:
-    - podSelector:
-        matchLabels:
-          name: pod-client-b
+    - ipBlock:
+        cidr: 2.2.5.12/32
