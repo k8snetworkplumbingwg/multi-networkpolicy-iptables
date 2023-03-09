@@ -14,7 +14,7 @@ setup() {
 	client_c_net1=$(get_net1_ip "test-ipblock-stacked" "pod-client-c")
 }
 
-@test "setup stacked test environments" {
+@test "setup ipblock-stacked test environments" {
 	kubectl create -f ipblock-stacked.yml
 	run kubectl -n test-ipblock-stacked wait --for=condition=ready -l app=test-ipblock-stacked pod --timeout=${kubewait_timeout}
 	[ "$status" -eq  "0" ]
@@ -33,7 +33,7 @@ setup() {
 	[ "$status" -eq  "1" ]
 }
 
-@test "test-ipblock-status check client-a" {
+@test "test-ipblock-stacked check client-a" {
 	run kubectl -n test-ipblock-stacked exec pod-client-a -- sh -c "echo x | nc -w 1 ${server_net1} 5555"
 	[ "$status" -eq  "0" ]
 }
