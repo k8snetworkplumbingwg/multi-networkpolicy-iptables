@@ -14,7 +14,7 @@ setup() {
 	client_c_net1=$(get_net1_ip "test-ipblock" "pod-client-c")
 }
 
-@test "setup stacked test environments" {
+@test "setup ipblock test environments" {
 	kubectl create -f ipblock.yml
 	run kubectl -n test-ipblock wait --for=condition=ready -l app=test-ipblock pod --timeout=${kubewait_timeout}
 	[ "$status" -eq  "0" ]

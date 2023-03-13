@@ -235,6 +235,7 @@ func (ipt *iptableBuffer) renderIngress(s *Server, podInfo *controllers.PodInfo,
 			"-j", "MARK", "--set-xmark 0x0/0x30000")
 		ipt.renderIngressPorts(s, podInfo, idx, n, ingress.Ports, policyNetworks)
 		ipt.renderIngressFrom(s, podInfo, idx, n, ingress.From, policyNetworks)
+		writeLine(ipt.policyIndex, "-A", chainName, "-m", "mark", "--mark", "0x30000/0x30000", "-j", "RETURN")
 	}
 }
 
@@ -463,6 +464,7 @@ func (ipt *iptableBuffer) renderEgress(s *Server, podInfo *controllers.PodInfo, 
 		writeLine(ipt.policyIndex, "-A", chainName, "-j", "MARK", "--set-xmark 0x0/0x30000")
 		ipt.renderEgressPorts(s, podInfo, idx, n, egress.Ports, policyNetworks)
 		ipt.renderEgressTo(s, podInfo, idx, n, egress.To, policyNetworks)
+		writeLine(ipt.policyIndex, "-A", chainName, "-m", "mark", "--mark", "0x30000/0x30000", "-j", "RETURN")
 	}
 }
 
