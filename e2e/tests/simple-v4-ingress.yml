@@ -95,8 +95,6 @@ spec:
   podSelector:
     matchLabels:
       name: pod-server
-  policyTypes:
-  - Ingress
   ingress:
   - from:
     - podSelector:
