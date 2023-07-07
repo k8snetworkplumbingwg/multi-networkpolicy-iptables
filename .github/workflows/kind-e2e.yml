@@ -41,3 +41,15 @@ jobs:
           bats ./tests/ipblock-list.bats
           bats ./tests/simple-v4-ingress-list.bats
           bats ./tests/simple-v4-egress-list.bats
+
+      - name: Export kind logs
+        if: ${{ failure() }}
+        run:
+          ./e2e/bin/kind export logs /tmp/kind-logs
+
+      - name: Upload logs
+        uses: actions/upload-artifact@v2
+        if: ${{ failure() }}
+        with:
+          name: kind-logs-e2e
+          path: /tmp/kind-logs/
