@@ -5,7 +5,7 @@ FROM golang:1.20 as build
 ADD . /usr/src/multi-networkpolicy-iptables
 
 RUN cd /usr/src/multi-networkpolicy-iptables && \
-    go build ./cmd/multi-networkpolicy-iptables/
+    CGO_ENABLED=0 go build ./cmd/multi-networkpolicy-iptables/
 
 FROM centos:centos7
 LABEL org.opencontainers.image.source https://github.com/k8snetworkplumbingwg/multi-networkpolicy-iptables
