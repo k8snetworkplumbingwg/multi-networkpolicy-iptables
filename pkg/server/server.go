@@ -477,7 +477,7 @@ func (s *Server) syncMultiPolicy() {
 
 			netns, err := ns.GetNS(netnsPath)
 			if err != nil {
-				klog.Errorf("cannot get pod (%s/%s:%s) netns: %v", p.Namespace, p.Name, p.Status.Phase, err)
+				klog.Errorf("cannot get pod (%s/%s:%s) netns (%s): %v", p.Namespace, p.Name, p.Status.Phase, netnsPath, err)
 				continue
 			}
 
@@ -603,19 +603,7 @@ func (s *Server) generatePolicyRulesForPodAndFamily(pod *v1.Pod, podInfo *contro
 			}
 		}
 
-		var ingressEnable, egressEnable bool
-		if len(policy.Spec.PolicyTypes) == 0 {
-			ingressEnable = true
-			egressEnable = true
-		} else {
-			for _, v := range policy.Spec.PolicyTypes {
-				if strings.EqualFold(string(v), string(multiv1beta1.PolicyTypeIngress)) {
-					ingressEnable = true
-				} else if strings.EqualFold(string(v), string(multiv1beta1.PolicyTypeEgress)) {
-					egressEnable = true
-				}
-			}
-		}
+		ingressEnable, egressEnable := getEnabledPolicyTypes(policy)
 		klog.V(8).Infof("ingress/egress = %v/%v\n", ingressEnable, egressEnable)
 
 		policyNetworksAnnot, ok := policy.GetAnnotations()[PolicyNetworkAnnotation]
@@ -705,4 +693,20 @@ func nadNamespacedName(o *netdefv1.NetworkAttachmentDefinition) string {
 		return "<nil>"
 	}
 	return o.GetNamespace() + "/" + o.GetName()
+}
+
+func getEnabledPolicyTypes(policy *multiv1beta1.MultiNetworkPolicy) (bool, bool) {
+	var ingressEnable, egressEnable bool
+	if len(policy.Spec.PolicyTypes) > 0 {
+		for _, v := range policy.Spec.PolicyTypes {
+			if strings.EqualFold(string(v), string(multiv1beta1.PolicyTypeIngress)) {
+				ingressEnable = true
+			} else if strings.EqualFold(string(v), string(multiv1beta1.PolicyTypeEgress)) {
+				egressEnable = true
+			}
+		}
+		return ingressEnable, egressEnable
+	}
+
+	return len(policy.Spec.Ingress) > 0, len(policy.Spec.Egress) > 0
 }

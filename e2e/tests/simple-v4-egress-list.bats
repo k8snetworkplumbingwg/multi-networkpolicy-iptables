@@ -21,6 +21,9 @@ setup() {
 	# verify all pods are available
 	run kubectl -n test-simple-v4-egress-list wait --for=condition=ready -l app=test-simple-v4-egress-list pod --timeout=${kubewait_timeout}
 	[ "$status" -eq  "0" ]
+
+	# wait for sync
+	sleep 3
 }
 
 @test "test-simple-v4-egress-list check client-a -> server" {
