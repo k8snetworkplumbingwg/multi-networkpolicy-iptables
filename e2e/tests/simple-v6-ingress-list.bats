@@ -22,6 +22,9 @@ setup() {
 	# verify all pods are available
 	run kubectl -n test-simple-v6-ingress-list wait --for=condition=ready -l app=test-simple-v6-ingress-list pod --timeout=${kubewait_timeout}
 	[ "$status" -eq  "0" ]
+	
+	# wait for sync
+	sleep 3
 }
 
 @test "test-simple-v6-ingress-list check client-a -> server" {
