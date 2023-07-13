@@ -239,7 +239,7 @@ func (ipt *iptableBuffer) renderIngress(s *Server, podInfo *controllers.PodInfo,
 	}
 }
 
-func (ipt *iptableBuffer) renderIngressPorts(s *Server, podInfo *controllers.PodInfo, pIndex, iIndex int, ports []multiv1beta1.MultiNetworkPolicyPort, policyNetworks []string) {
+func (ipt *iptableBuffer) renderIngressPorts(_ *Server, podInfo *controllers.PodInfo, pIndex, iIndex int, ports []multiv1beta1.MultiNetworkPolicyPort, policyNetworks []string) {
 	chainName := fmt.Sprintf("MULTI-%d-INGRESS-%d-PORTS", pIndex, iIndex)
 	ipt.CreateFilterChain(chainName)
 
@@ -468,7 +468,7 @@ func (ipt *iptableBuffer) renderEgress(s *Server, podInfo *controllers.PodInfo, 
 	}
 }
 
-func (ipt *iptableBuffer) renderEgressPorts(s *Server, podInfo *controllers.PodInfo, pIndex, iIndex int, ports []multiv1beta1.MultiNetworkPolicyPort, policyNetworks []string) {
+func (ipt *iptableBuffer) renderEgressPorts(_ *Server, podInfo *controllers.PodInfo, pIndex, iIndex int, ports []multiv1beta1.MultiNetworkPolicyPort, policyNetworks []string) {
 	chainName := fmt.Sprintf("MULTI-%d-EGRESS-%d-PORTS", pIndex, iIndex)
 	ipt.CreateFilterChain(chainName)
 

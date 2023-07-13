@@ -156,11 +156,8 @@ func (o *Options) Validate() error {
 	}
 
 	// Validate v6 engress rules
-	if err := parseCustomRuleFile(o.customIPv6EgressRuleFile, &o.customIPv6EgressRule); err != nil {
-		return err
-	}
-
-	return nil
+	err := parseCustomRuleFile(o.customIPv6EgressRuleFile, &o.customIPv6EgressRule)
+	return err
 }
 
 // Run invokes server
