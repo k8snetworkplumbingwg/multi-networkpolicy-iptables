@@ -112,7 +112,7 @@ func (s *Server) RunPodConfig() {
 }
 
 // Run ...
-func (s *Server) Run(hostname string, stopCh chan struct{}) {
+func (s *Server) Run(_ string, stopCh chan struct{}) {
 	if s.Broadcaster != nil {
 		s.Broadcaster.StartRecordingToSink(
 			&v1core.EventSinkImpl{Interface: s.Client.CoreV1().Events("")})

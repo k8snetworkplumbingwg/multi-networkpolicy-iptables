@@ -129,7 +129,7 @@ func NewFakePod(namespace, name string) *v1.Pod {
 	}
 }
 
-func NewFakePodChangeTracker(hostname, hostPrefix string, ndt *NetDefChangeTracker) *PodChangeTracker {
+func NewFakePodChangeTracker(hostname, _ string, ndt *NetDefChangeTracker) *PodChangeTracker {
 	return &PodChangeTracker{
 		items:          make(map[types.NamespacedName]*podChange),
 		hostname:       hostname,
