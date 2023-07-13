@@ -7,9 +7,10 @@ ADD . /usr/src/multi-networkpolicy-iptables
 RUN cd /usr/src/multi-networkpolicy-iptables && \
     CGO_ENABLED=0 go build ./cmd/multi-networkpolicy-iptables/
 
-FROM centos:centos7
+FROM fedora:38
 LABEL org.opencontainers.image.source https://github.com/k8snetworkplumbingwg/multi-networkpolicy-iptables
-RUN yum install -y iptables-utils
+RUN dnf install -y iptables-utils iptables-legacy iptables-nft
+RUN alternatives --set iptables /usr/sbin/iptables-nft
 COPY --from=build /usr/src/multi-networkpolicy-iptables/multi-networkpolicy-iptables /usr/bin
 WORKDIR /usr/bin
 
