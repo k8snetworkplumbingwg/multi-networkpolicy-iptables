@@ -93,3 +93,5 @@ replace (
 	k8s.io/pod-security-admission => k8s.io/pod-security-admission v0.22.8
 	k8s.io/sample-apiserver => k8s.io/sample-apiserver v0.22.8
 )
+
+replace github.com/prometheus/client_golang => github.com/prometheus/client_golang v1.11.1
