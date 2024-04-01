@@ -66,6 +66,7 @@ replace (
 	github.com/gogo/protobuf => github.com/gogo/protobuf v1.3.2
 	golang.org/x/net => golang.org/x/net v0.17.0
 	golang.org/x/text => golang.org/x/text v0.3.8
+	google.golang.org/protobuf => google.golang.org/protobuf v1.33.0
 	k8s.io/api => k8s.io/api v0.22.8
 	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.22.8
 	k8s.io/apimachinery => k8s.io/apimachinery v0.22.8
