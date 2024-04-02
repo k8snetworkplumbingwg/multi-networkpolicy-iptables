@@ -33,18 +33,8 @@ jobs:
           push: true
           platform: linux/amd64
           tags: |
-            ghcr.io/${{ github.repository }}:latest-amd64
-            ghcr.io/${{ github.repository }}:snapshot-amd64
-
-      - name: Create manifest for multi-arch images
-        if: github.repository_owner == 'k8snetworkplumbingwg'
-        run: |
-          docker pull ${REPOSITORY}:snapshot-amd64
-          docker manifest create ${REPOSITORY}:snapshot ${REPOSITORY}:snapshot-amd64
-          docker manifest annotate ${REPOSITORY}:snapshot ${REPOSITORY}:snapshot-amd64 --arch amd64
-          docker manifest push ${REPOSITORY}:snapshot
-          docker pull ${REPOSITORY}:latest-amd64
-          docker manifest create ${REPOSITORY}:latest ${REPOSITORY}:latest-amd64
-          docker manifest annotate ${REPOSITORY}:latest ${REPOSITORY}:latest-amd64 --arch amd64
-          docker manifest push ${REPOSITORY}:latest
-
+            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/${{ github.repository }}:snapshot
+          platforms: linux/amd64
+          sbom: false
+          provenance: false
