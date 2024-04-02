@@ -122,7 +122,6 @@ spec:
       containers:
       - name: multi-networkpolicy
         image: localhost:5000/multus-networkpolicy-iptables:e2e
-        imagePullPolicy: Always
         command: ["/usr/bin/multi-networkpolicy-iptables"]
         args:
         - "--host-prefix=/host"

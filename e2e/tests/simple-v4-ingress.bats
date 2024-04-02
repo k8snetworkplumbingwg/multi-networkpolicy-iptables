@@ -24,7 +24,7 @@ setup() {
 
 @test "check generated iptables rules" {
 	# wait for sync
-	sleep 3
+	sleep 5
 	# check pod-server has multi-networkpolicy iptables rules for ingress
         run kubectl -n test-simple-v4-ingress exec pod-server -- sh -c "iptables-save | grep MULTI-0-INGRESS"
 	[ "$status" -eq  "0" ]
@@ -36,7 +36,7 @@ setup() {
 	[ "$status" -eq  "1" ]
 
 	# wait for sync
-	sleep 3
+	sleep 5
 	# check that iptables files in pod-iptables
 	pod_name=$(kubectl -n kube-system get pod -o wide | grep 'kind-worker' | grep multi-net | cut -f 1 -d ' ')
 	run kubectl -n kube-system exec ${pod_name} -- \
@@ -80,7 +80,7 @@ setup() {
 
 	# enable multi-networkpolicy again
 	kubectl -n kube-system patch daemonsets multi-networkpolicy-ds-amd64 --type json -p='[{"op": "remove", "path": "/spec/template/spec/nodeSelector/non-existing"}]'
-	sleep 3
+	sleep 5
 	kubectl -n kube-system wait --for=condition=ready -l app=multi-networkpolicy pod --timeout=${kubewait_timeout}
 }
 
@@ -90,7 +90,7 @@ setup() {
 	run kubectl -n test-simple-v4-ingress wait --for=delete -l app=test-simple-v4-ingress pod --timeout=${kubewait_timeout}
 	[ "$status" -eq  "0" ]
 
-	sleep 3
+	sleep 5
 	# check that no iptables files in pod-iptables
 	pod_name=$(kubectl -n kube-system get pod -o wide | grep 'kind-worker' | grep multi-net | cut -f 1 -d ' ')
 	run kubectl -n kube-system exec ${pod_name} -- \

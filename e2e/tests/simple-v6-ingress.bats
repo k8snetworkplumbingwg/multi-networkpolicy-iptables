@@ -25,7 +25,7 @@ setup() {
 
 @test "check generated ip6tables rules" {
 	# wait for sync
-	sleep 3
+	sleep 5
 
 	# check pod-server has multi-networkpolicy ip6tables rules for ingress
         run kubectl -n test-simple-v6-ingress exec pod-server -- sh -c "ip6tables-save | grep MULTI-0-INGRESS"
@@ -80,7 +80,7 @@ setup() {
 
 	# enable multi-networkpolicy again
 	kubectl -n kube-system patch daemonsets multi-networkpolicy-ds-amd64 --type json -p='[{"op": "remove", "path": "/spec/template/spec/nodeSelector/non-existing"}]'
-	sleep 3
+	sleep 5
 	kubectl -n kube-system wait --for=condition=ready -l app=multi-networkpolicy pod --timeout=${kubewait_timeout}
 }
 

@@ -24,7 +24,7 @@ setup() {
 	[ "$status" -eq  "0" ]
 	
 	# wait for sync
-	sleep 3
+	sleep 5
 }
 
 @test "test-simple-v6-ingress-list check client-a -> server" {

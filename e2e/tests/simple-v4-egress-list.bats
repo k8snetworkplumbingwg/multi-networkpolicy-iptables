@@ -23,7 +23,7 @@ setup() {
 	[ "$status" -eq  "0" ]
 
 	# wait for sync
-	sleep 3
+	sleep 5
 }
 
 @test "test-simple-v4-egress-list check client-a -> server" {

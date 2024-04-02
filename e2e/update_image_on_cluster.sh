@@ -7,7 +7,7 @@ OCI_BIN="${OCI_BIN:-docker}"
 IMAGE="localhost:5000/multus-networkpolicy-iptables:e2e"
 
 $OCI_BIN build -t ${IMAGE} ${E2E}/..
-$OCI_BIN push ${IMAGE}
+kind load docker-image ${IMAGE}
 new_image_with_digest=`${OCI_BIN} inspect --format='{{index .RepoDigests 0}}' ${IMAGE}`
 
 kubectl set image -n kube-system ds/multi-networkpolicy-ds-amd64 multi-networkpolicy=${new_image_with_digest}
