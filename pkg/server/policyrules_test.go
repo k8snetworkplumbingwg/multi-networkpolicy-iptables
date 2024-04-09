@@ -268,7 +268,18 @@ COMMIT
 		Expect(buf.SyncRules(ipt)).To(BeNil())
 		iptableRules := bytes.NewBuffer(nil)
 		ipt.SaveInto(utiliptables.TableFilter, iptableRules)
-		Expect(iptableRules.String()).To(Equal(filterRules))
+		tableRules :=
+			`*filter
+:INPUT - [0:0]
+:FORWARD - [0:0]
+:OUTPUT - [0:0]
+:MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
+:MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
+COMMIT
+`
+		Expect(iptableRules.String()).To(Equal(tableRules))
 
 		// reset and verify empty
 		buf.Reset()
@@ -1668,26 +1679,40 @@ COMMIT
 
 		s.generatePolicyRulesForPod(pod1, podInfo1)
 
-		Expect(string(result.Lines)).To(Equal(`*filter
+		Expect(string(result.Dump.String())).To(Equal(`*nat
+:PREROUTING - [0:0]
+:INPUT - [0:0]
+:OUTPUT - [0:0]
+:POSTROUTING - [0:0]
+-A PREROUTING -i net1 -j RETURN
+COMMIT
+*filter
+:INPUT - [0:0]
+:FORWARD - [0:0]
+:OUTPUT - [0:0]
 :MULTI-INGRESS - [0:0]
-:MULTI-INGRESS-COMMON - [0:0]
 :MULTI-EGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
 :MULTI-EGRESS-COMMON - [0:0]
 :MULTI-0-INGRESS - [0:0]
 :MULTI-0-INGRESS-0-PORTS - [0:0]
 :MULTI-0-INGRESS-0-FROM - [0:0]
--A MULTI-INGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A INPUT -i net1 -j MULTI-INGRESS
+-A OUTPUT -o net1 -j MULTI-EGRESS
 -A MULTI-INGRESS -j MULTI-INGRESS-COMMON
 -A MULTI-INGRESS -m comment --comment "policy:ingressPolicies1 net-attach-def:testns1/net-attach1" -i net1 -j MULTI-0-INGRESS
 -A MULTI-INGRESS -m mark --mark 0x30000/0x30000 -j RETURN
+-A MULTI-INGRESS -j DROP
+-A MULTI-INGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 -A MULTI-0-INGRESS -j MARK --set-xmark 0x0/0x30000
 -A MULTI-0-INGRESS -j MULTI-0-INGRESS-0-PORTS
 -A MULTI-0-INGRESS -j MULTI-0-INGRESS-0-FROM
 -A MULTI-0-INGRESS -m mark --mark 0x30000/0x30000 -j RETURN
--A MULTI-INGRESS -j DROP
 -A MULTI-0-INGRESS-0-PORTS -m comment --comment "no ingress ports, skipped" -j MARK --set-xmark 0x10000/0x10000
 -A MULTI-0-INGRESS-0-FROM -i net1 -s 10.1.1.2 -j MARK --set-xmark 0x20000/0x20000
 -A MULTI-0-INGRESS-0-FROM -i net1 -s 10.1.1.1 -j MARK --set-xmark 0x20000/0x20000
+COMMIT
+*mangle
 COMMIT
 `))
 
@@ -1940,7 +1965,18 @@ COMMIT
 		Expect(buf.SyncRules(ipt)).To(BeNil())
 		iptableRules := bytes.NewBuffer(nil)
 		ipt.SaveInto(utiliptables.TableFilter, iptableRules)
-		Expect(iptableRules.String()).To(Equal(filterRules))
+		tableRules :=
+			`*filter
+:INPUT - [0:0]
+:FORWARD - [0:0]
+:OUTPUT - [0:0]
+:MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
+:MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
+COMMIT
+`
+		Expect(iptableRules.String()).To(Equal(tableRules))
 
 		// reset and verify empty
 		buf.Reset()

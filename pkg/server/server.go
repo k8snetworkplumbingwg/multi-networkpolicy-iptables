@@ -51,11 +51,11 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/tools/record"
+	nodeutil "k8s.io/component-helpers/node/util"
 	"k8s.io/klog"
 	api "k8s.io/kubernetes/pkg/apis/core"
 	"k8s.io/kubernetes/pkg/util/async"
 	utiliptables "k8s.io/kubernetes/pkg/util/iptables"
-	utilnode "k8s.io/kubernetes/pkg/util/node"
 	"k8s.io/utils/exec"
 )
 
@@ -224,7 +224,7 @@ func NewServer(o *Options) (*Server, error) {
 		return nil, fmt.Errorf("server creation failed while creating net-attach-def clientset for kubeconfig [%s]: %w", kubeConfig, err)
 	}
 
-	hostname, err := utilnode.GetHostname(o.hostnameOverride)
+	hostname, err := nodeutil.GetHostname(o.hostnameOverride)
 	if err != nil {
 		return nil, fmt.Errorf("server creation failed while getting hostname with override [%s]: %w", o.hostnameOverride, err)
 	}

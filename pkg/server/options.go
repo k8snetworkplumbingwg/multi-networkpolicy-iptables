@@ -26,8 +26,8 @@ import (
 	"github.com/k8snetworkplumbingwg/multi-networkpolicy-iptables/pkg/controllers"
 	"github.com/spf13/pflag"
 
+	nodeutil "k8s.io/component-helpers/node/util"
 	"k8s.io/klog"
-	utilnode "k8s.io/kubernetes/pkg/util/node"
 )
 
 // Options stores option for the command
@@ -167,7 +167,7 @@ func (o *Options) Run() error {
 		return err
 	}
 
-	hostname, err := utilnode.GetHostname(o.hostnameOverride)
+	hostname, err := nodeutil.GetHostname(o.hostnameOverride)
 	if err != nil {
 		return err
 	}

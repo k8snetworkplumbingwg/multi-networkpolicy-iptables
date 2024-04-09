@@ -44,7 +44,7 @@ const PolicyNetworkAnnotation = "k8s.v1.cni.cncf.io/policy-for"
 func GetChainLines(table Table, save []byte) map[Chain][]byte {
 */
 type iptableBuffer struct {
-	currentFilter map[utiliptables.Chain][]byte
+	currentFilter map[utiliptables.Chain]struct{}
 	currentChain  map[utiliptables.Chain]bool
 	activeChain   map[utiliptables.Chain]bool
 	policyCommon  *bytes.Buffer
@@ -60,7 +60,7 @@ type iptableBuffer struct {
 
 func newIptableBuffer() *iptableBuffer {
 	buf := &iptableBuffer{
-		currentFilter: make(map[utiliptables.Chain][]byte),
+		currentFilter: make(map[utiliptables.Chain]struct{}),
 		policyCommon:  bytes.NewBuffer(nil),
 		policyIndex:   bytes.NewBuffer(nil),
 		ingressPorts:  bytes.NewBuffer(nil),
@@ -85,7 +85,8 @@ func (ipt *iptableBuffer) Init(iptables utiliptables.Interface) {
 		klog.Errorf("failed to get iptable filter: %v", err)
 		return
 	}
-	ipt.currentFilter = utiliptables.GetChainLines(utiliptables.TableFilter, tmpbuf.Bytes())
+	//ipt.currentFilter = utiliptables.GetChainLines(utiliptables.TableFilter, tmpbuf.Bytes())
+	ipt.currentFilter = utiliptables.GetChainsFromTable(tmpbuf.Bytes())
 	for k := range ipt.currentFilter {
 		if strings.HasPrefix(string(k), "MULTI-") {
 			ipt.currentChain[k] = true
@@ -100,8 +101,8 @@ func (ipt *iptableBuffer) Init(iptables utiliptables.Interface) {
 	// (which most should have because we created them above).
 	for _, chainName := range []utiliptables.Chain{ingressChain, ingressCommonChain, egressChain, egressCommonChain} {
 		ipt.activeChain[chainName] = true
-		if chain, ok := ipt.currentFilter[chainName]; ok {
-			writeBytesLine(ipt.filterChains, chain)
+		if _, ok := ipt.currentFilter[chainName]; ok {
+			writeBytesLine(ipt.filterChains, fmt.Sprintf(":%s - [0:0]", chainName))
 		} else {
 			writeLine(ipt.filterChains, utiliptables.MakeChainLine(chainName))
 		}
@@ -123,8 +124,8 @@ func (ipt *iptableBuffer) FinalizeRules() {
 		delete(ipt.currentChain, k)
 	}
 	for chainName := range ipt.currentChain {
-		if chain, ok := ipt.currentFilter[chainName]; ok {
-			writeBytesLine(ipt.filterChains, chain)
+		if _, ok := ipt.currentFilter[chainName]; ok {
+			writeBytesLine(ipt.filterChains, fmt.Sprintf(":%s - [0:0]", chainName))
 		}
 		writeLine(ipt.policyIndex, "-X", string(chainName))
 	}
@@ -160,8 +161,8 @@ func (ipt *iptableBuffer) IsUsed() bool {
 func (ipt *iptableBuffer) CreateFilterChain(chainName string) {
 	ipt.activeChain[utiliptables.Chain(chainName)] = true
 	// Create chain if not exists
-	if chain, ok := ipt.currentFilter[utiliptables.Chain(chainName)]; ok {
-		writeBytesLine(ipt.filterChains, chain)
+	if _, ok := ipt.currentFilter[utiliptables.Chain(chainName)]; ok {
+		writeBytesLine(ipt.filterChains, fmt.Sprintf(":%s - [0:0]", chainName))
 	} else {
 		writeLine(ipt.filterChains, utiliptables.MakeChainLine(utiliptables.Chain(chainName)))
 	}
@@ -653,8 +654,8 @@ func writeLine(buf *bytes.Buffer, words ...string) {
 	}
 }
 
-func writeBytesLine(buf *bytes.Buffer, bytes []byte) {
-	buf.Write(bytes)
+func writeBytesLine(buf *bytes.Buffer, str string) {
+	buf.Write([]byte(str))
 	buf.WriteByte('\n')
 }
 
