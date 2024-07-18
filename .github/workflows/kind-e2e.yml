@@ -30,17 +30,8 @@ jobs:
           export TERM=dumb
           # enable ip6_tables
           sudo modprobe ip6_tables
-          bats ./tests/simple-v4-ingress.bats
-          bats ./tests/simple-v4-egress.bats
-          bats ./tests/simple-v6-ingress.bats
-          bats ./tests/ipblock.bats
-          # stacked case
-          bats ./tests/stacked.bats
-          bats ./tests/ipblock-stacked.bats
-          # multiple items in egress/ingress
-          bats ./tests/ipblock-list.bats
-          bats ./tests/simple-v4-ingress-list.bats
-          bats ./tests/simple-v4-egress-list.bats
+
+          bats ./tests/*.bats
 
       - name: Export kind logs
         if: ${{ failure() }}
