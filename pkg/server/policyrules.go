@@ -280,7 +280,6 @@ func (ipt *iptableBuffer) renderIngressFrom(s *Server, podInfo *controllers.PodI
 	writeLine(ipt.policyIndex, "-A", fmt.Sprintf("MULTI-%d-INGRESS", pIndex), "-j", chainName)
 
 	s.podMap.Update(s.podChanges)
-	validPeers := 0
 	for _, peer := range from {
 		if peer.PodSelector != nil || peer.NamespaceSelector != nil {
 			podSelectorMap, err := metav1.LabelSelectorAsMap(peer.PodSelector)
@@ -334,7 +333,6 @@ func (ipt *iptableBuffer) renderIngressFrom(s *Server, podInfo *controllers.PodI
 								writeLine(ipt.ingressFrom, "-A", chainName,
 									"-i", podIntf.InterfaceName, "-s", ip,
 									"-j", "MARK", "--set-xmark", "0x20000/0x20000")
-								validPeers++
 							}
 						}
 						// ingress should accept reverse path
@@ -357,7 +355,6 @@ func (ipt *iptableBuffer) renderIngressFrom(s *Server, podInfo *controllers.PodI
 					if ipt.isIPFamilyCompatible(except) {
 						writeLine(ipt.ingressFrom, "-A", chainName,
 							"-i", podIntf.InterfaceName, "-s", except, "-j", "DROP")
-						validPeers++
 					}
 				}
 			}
@@ -369,7 +366,6 @@ func (ipt *iptableBuffer) renderIngressFrom(s *Server, podInfo *controllers.PodI
 					writeLine(ipt.ingressFrom, "-A", chainName,
 						"-i", podIntf.InterfaceName, "-s", peer.IPBlock.CIDR,
 						"-j", "MARK", "--set-xmark", "0x20000/0x20000")
-					validPeers++
 				}
 			}
 			for _, podIntf := range podInfo.Interfaces {
@@ -390,7 +386,7 @@ func (ipt *iptableBuffer) renderIngressFrom(s *Server, podInfo *controllers.PodI
 	}
 
 	// Add skip rule if no froms
-	if len(from) == 0 || validPeers == 0 {
+	if len(from) == 0 {
 		writeLine(ipt.ingressFrom, "-A", chainName,
 			"-m", "comment", "--comment", "\"no ingress from, skipped\"",
 			"-j", "MARK", "--set-xmark", "0x20000/0x20000")
@@ -509,7 +505,6 @@ func (ipt *iptableBuffer) renderEgressTo(s *Server, podInfo *controllers.PodInfo
 	writeLine(ipt.policyIndex, "-A", fmt.Sprintf("MULTI-%d-EGRESS", pIndex), "-j", chainName)
 
 	s.podMap.Update(s.podChanges)
-	validPeers := 0
 	for _, peer := range to {
 		if peer.PodSelector != nil || peer.NamespaceSelector != nil {
 			podSelectorMap, err := metav1.LabelSelectorAsMap(peer.PodSelector)
@@ -564,7 +559,6 @@ func (ipt *iptableBuffer) renderEgressTo(s *Server, podInfo *controllers.PodInfo
 								writeLine(ipt.egressTo, "-A", chainName,
 									"-o", podIntf.InterfaceName, "-d", ip,
 									"-j", "MARK", "--set-xmark", "0x20000/0x20000")
-								validPeers++
 							}
 						}
 						// egress should accept reverse path
@@ -587,7 +581,6 @@ func (ipt *iptableBuffer) renderEgressTo(s *Server, podInfo *controllers.PodInfo
 					if ipt.isIPFamilyCompatible(except) {
 						writeLine(ipt.egressTo, "-A", chainName,
 							"-o", multi.InterfaceName, "-d", except, "-j", "DROP")
-						validPeers++
 					}
 				}
 			}
@@ -599,7 +592,6 @@ func (ipt *iptableBuffer) renderEgressTo(s *Server, podInfo *controllers.PodInfo
 					writeLine(ipt.egressTo, "-A", chainName,
 						"-o", podIntf.InterfaceName, "-d", peer.IPBlock.CIDR,
 						"-j", "MARK", "--set-xmark", "0x20000/0x20000")
-					validPeers++
 				}
 			}
 			// egress should accept reverse path
@@ -621,7 +613,7 @@ func (ipt *iptableBuffer) renderEgressTo(s *Server, podInfo *controllers.PodInfo
 	}
 
 	// Add skip rules if no to
-	if len(to) == 0 || validPeers == 0 {
+	if len(to) == 0 {
 		writeLine(ipt.egressTo, "-A", chainName,
 			"-m", "comment", "--comment", "\"no egress to, skipped\"",
 			"-j", "MARK", "--set-xmark", "0x20000/0x20000")
