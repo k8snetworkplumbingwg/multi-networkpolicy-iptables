@@ -19,12 +19,13 @@ package server
 import (
 	"bytes"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/k8snetworkplumbingwg/multi-networkpolicy-iptables/pkg/controllers"
-	multiv1beta2 "github.com/k8snetworkplumbingwg/multi-networkpolicy/pkg/apis/k8s.cni.cncf.io/v1beta2"
+	multiv1beta1 "github.com/k8snetworkplumbingwg/multi-networkpolicy/pkg/apis/k8s.cni.cncf.io/v1beta1"
 	multifake "github.com/k8snetworkplumbingwg/multi-networkpolicy/pkg/client/clientset/versioned/fake"
 	netdefv1 "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
 	netfake "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/client/clientset/versioned/fake"
@@ -220,7 +221,7 @@ var _ = Describe("policyrules testing", func() {
 
 	BeforeEach(func() {
 		var err error
-		tmpDir, err = os.MkdirTemp("", "multi-networkpolicy-iptables")
+		tmpDir, err = ioutil.TempDir("", "multi-networkpolicy-iptables")
 		Expect(err).NotTo(HaveOccurred())
 	})
 
@@ -524,7 +525,7 @@ COMMIT
 
 	It("ingress common - custom v4 rules", func() {
 		tmpRuleFile := filepath.Join(tmpDir, "testInputRules.txt")
-		os.WriteFile(tmpRuleFile, []byte(
+		ioutil.WriteFile(tmpRuleFile, []byte(
 			`# comment: this accepts DHCP packet
 -m udp -p udp --sport bootps --dport bootpc -j ACCEPT
 `), 0600)
@@ -578,7 +579,7 @@ COMMIT
 
 	It("ingress common - custom v6 rules", func() {
 		tmpRuleFile := filepath.Join(tmpDir, "testInputRules.txt")
-		os.WriteFile(tmpRuleFile, []byte(
+		ioutil.WriteFile(tmpRuleFile, []byte(
 			`# comment: this accepts DHCPv6 packets from link-local address
 -m udp -p udp --dport 546 -d fe80::/64 -j ACCEPT
 `), 0600)
@@ -864,7 +865,7 @@ COMMIT
 
 	It("egress common - custom v4 rules", func() {
 		tmpRuleFile := filepath.Join(tmpDir, "testInputRules.txt")
-		os.WriteFile(tmpRuleFile, []byte(
+		ioutil.WriteFile(tmpRuleFile, []byte(
 			`# comment: this rules accepts DHCP packets
 -m udp -p udp --sport bootc --dport bootps -j ACCEPT
 `), 0600)
@@ -918,7 +919,7 @@ COMMIT
 
 	It("egress common - custom v6 rules", func() {
 		tmpRuleFile := filepath.Join(tmpDir, "testInputRules.txt")
-		os.WriteFile(tmpRuleFile, []byte(
+		ioutil.WriteFile(tmpRuleFile, []byte(
 			`# comment: this rules accepts DHCPv6 packet to dhcp relay agents/servers
 -m udp -p udp --dport 547 -d ff02::1:2 -j ACCEPT
 `), 0600)
@@ -973,23 +974,23 @@ COMMIT
 	It("ingress rules ipblock", func() {
 		port := intstr.FromInt(8888)
 		protoTCP := v1.ProtocolTCP
-		ingressPolicies1 := &multiv1beta2.MultiNetworkPolicy{
+		ingressPolicies1 := &multiv1beta1.MultiNetworkPolicy{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "ingressPolicies1",
 				Namespace: "testns1",
 			},
-			Spec: multiv1beta2.MultiNetworkPolicySpec{
-				Ingress: []multiv1beta2.MultiNetworkPolicyIngressRule{
+			Spec: multiv1beta1.MultiNetworkPolicySpec{
+				Ingress: []multiv1beta1.MultiNetworkPolicyIngressRule{
 					{
-						Ports: []multiv1beta2.MultiNetworkPolicyPort{
+						Ports: []multiv1beta1.MultiNetworkPolicyPort{
 							{
 								Protocol: &protoTCP,
 								Port:     &port,
 							},
 						},
-						From: []multiv1beta2.MultiNetworkPolicyPeer{
+						From: []multiv1beta1.MultiNetworkPolicyPeer{
 							{
-								IPBlock: &multiv1beta2.IPBlock{
+								IPBlock: &multiv1beta1.IPBlock{
 									CIDR:   "10.1.1.1/24",
 									Except: []string{"10.1.1.254"},
 								},
@@ -1063,111 +1064,24 @@ COMMIT
 		Expect(buf.filterRules.String()).To(Equal(finalizedRules))
 	})
 
-	It("ingress rules endport", func() {
-		port0 := intstr.FromInt(8888)
-		port1 := intstr.FromInt(9999)
-		endport := int32(11111)
-		protoTCP := v1.ProtocolTCP
-		ingressPolicies1 := &multiv1beta2.MultiNetworkPolicy{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "ingressPolicies1",
-				Namespace: "testns1",
-			},
-			Spec: multiv1beta2.MultiNetworkPolicySpec{
-				Ingress: []multiv1beta2.MultiNetworkPolicyIngressRule{
-					{
-						Ports: []multiv1beta2.MultiNetworkPolicyPort{
-							{
-								Protocol: &protoTCP,
-								Port:     &port0,
-							},
-							{
-								Protocol: &protoTCP,
-								Port:     &port1,
-								EndPort:  &endport,
-							},
-						},
-					},
-				},
-			},
-		}
-
-		ipt := fakeiptables.NewFake()
-		Expect(ipt).NotTo(BeNil())
-		buf := newIptableBuffer()
-		Expect(buf).NotTo(BeNil())
-
-		// verify buf initialized at init
-		buf.Init(ipt)
-		s := NewFakeServer("samplehost")
-		Expect(s).NotTo(BeNil())
-
-		Expect(s.netdefChanges.Update(
-			nil,
-			NewNetDef("testns1", "net-attach1", NewCNIConfig("testCNI", "multi")))).To(BeTrue())
-		Expect(s.netdefChanges.GetPluginType(types.NamespacedName{Namespace: "testns1", Name: "net-attach1"})).To(Equal("multi"))
-
-		pod1 := NewFakePodWithNetAnnotation(
-			"testns1",
-			"testpod1",
-			"net-attach1",
-			NewFakeNetworkStatus("testns1", "net-attach1", "192.168.1.1", "10.1.1.1"),
-			nil)
-		AddPod(s, pod1)
-		podInfo1, err := s.podMap.GetPodInfo(pod1)
-		Expect(err).NotTo(HaveOccurred())
-
-		buf.renderIngress(s, podInfo1, 0, ingressPolicies1, []string{"testns1/net-attach1"})
-
-		portRules :=
-			`-A MULTI-0-INGRESS-0-PORTS -i net1 -m tcp -p tcp --dport 8888 -j MARK --set-xmark 0x10000/0x10000
--A MULTI-0-INGRESS-0-PORTS -i net1 -m tcp -p tcp --dport 9999:11111 -j MARK --set-xmark 0x10000/0x10000
-`
-
-		Expect(buf.ingressPorts.String()).To(Equal(portRules))
-
-		buf.FinalizeRules()
-		finalizedRules :=
-			`*filter
-:MULTI-INGRESS - [0:0]
-:MULTI-INGRESS-COMMON - [0:0]
-:MULTI-EGRESS - [0:0]
-:MULTI-EGRESS-COMMON - [0:0]
-:MULTI-0-INGRESS - [0:0]
-:MULTI-0-INGRESS-0-PORTS - [0:0]
-:MULTI-0-INGRESS-0-FROM - [0:0]
--A MULTI-INGRESS -m comment --comment "policy:ingressPolicies1 net-attach-def:testns1/net-attach1" -i net1 -j MULTI-0-INGRESS
--A MULTI-INGRESS -m mark --mark 0x30000/0x30000 -j RETURN
--A MULTI-0-INGRESS -j MARK --set-xmark 0x0/0x30000
--A MULTI-0-INGRESS -j MULTI-0-INGRESS-0-PORTS
--A MULTI-0-INGRESS -j MULTI-0-INGRESS-0-FROM
--A MULTI-0-INGRESS -m mark --mark 0x30000/0x30000 -j RETURN
--A MULTI-0-INGRESS-0-PORTS -i net1 -m tcp -p tcp --dport 8888 -j MARK --set-xmark 0x10000/0x10000
--A MULTI-0-INGRESS-0-PORTS -i net1 -m tcp -p tcp --dport 9999:11111 -j MARK --set-xmark 0x10000/0x10000
--A MULTI-0-INGRESS-0-FROM -m comment --comment "no ingress from, skipped" -j MARK --set-xmark 0x20000/0x20000
-COMMIT
-`
-		Expect(buf.filterRules.String()).To(Equal(finalizedRules))
-	})
-
 	It("ingress rules podselector/matchlabels", func() {
 		port := intstr.FromInt(8888)
 		protoTCP := v1.ProtocolTCP
-		ingressPolicies1 := &multiv1beta2.MultiNetworkPolicy{
+		ingressPolicies1 := &multiv1beta1.MultiNetworkPolicy{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "ingressPolicies1",
 				Namespace: "testns1",
 			},
-			Spec: multiv1beta2.MultiNetworkPolicySpec{
-				Ingress: []multiv1beta2.MultiNetworkPolicyIngressRule{
+			Spec: multiv1beta1.MultiNetworkPolicySpec{
+				Ingress: []multiv1beta1.MultiNetworkPolicyIngressRule{
 					{
-						Ports: []multiv1beta2.MultiNetworkPolicyPort{
+						Ports: []multiv1beta1.MultiNetworkPolicyPort{
 							{
 								Protocol: &protoTCP,
 								Port:     &port,
 							},
 						},
-						From: []multiv1beta2.MultiNetworkPolicyPeer{
+						From: []multiv1beta1.MultiNetworkPolicyPeer{
 							{
 								PodSelector: &metav1.LabelSelector{
 									MatchLabels: map[string]string{
@@ -1255,15 +1169,15 @@ COMMIT
 	})
 
 	It("ingress rules namespace selector", func() {
-		ingressPolicies1 := &multiv1beta2.MultiNetworkPolicy{
+		ingressPolicies1 := &multiv1beta1.MultiNetworkPolicy{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "ingressPolicies1",
 				Namespace: "testns1",
 			},
-			Spec: multiv1beta2.MultiNetworkPolicySpec{
-				Ingress: []multiv1beta2.MultiNetworkPolicyIngressRule{
+			Spec: multiv1beta1.MultiNetworkPolicySpec{
+				Ingress: []multiv1beta1.MultiNetworkPolicyIngressRule{
 					{
-						From: []multiv1beta2.MultiNetworkPolicyPeer{
+						From: []multiv1beta1.MultiNetworkPolicyPeer{
 							{
 								NamespaceSelector: &metav1.LabelSelector{
 									MatchLabels: map[string]string{
@@ -1344,15 +1258,15 @@ COMMIT
 	})
 
 	It("ingress rules namespaceSeelctor with non existent labels", func() {
-		ingressPolicies1 := &multiv1beta2.MultiNetworkPolicy{
+		ingressPolicies1 := &multiv1beta1.MultiNetworkPolicy{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "ingressPolicies1",
 				Namespace: "testns1",
 			},
-			Spec: multiv1beta2.MultiNetworkPolicySpec{
-				Ingress: []multiv1beta2.MultiNetworkPolicyIngressRule{
+			Spec: multiv1beta1.MultiNetworkPolicySpec{
+				Ingress: []multiv1beta1.MultiNetworkPolicyIngressRule{
 					{
-						From: []multiv1beta2.MultiNetworkPolicyPeer{
+						From: []multiv1beta1.MultiNetworkPolicyPeer{
 							{
 								NamespaceSelector: &metav1.LabelSelector{
 									MatchLabels: map[string]string{
@@ -1430,15 +1344,15 @@ COMMIT
 	})
 
 	It("enforce policy with net-attach-def in a different namespace than pods", func() {
-		ingressPolicies1 := &multiv1beta2.MultiNetworkPolicy{
+		ingressPolicies1 := &multiv1beta1.MultiNetworkPolicy{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "ingressPolicies1",
 				Namespace: "testns1",
 			},
-			Spec: multiv1beta2.MultiNetworkPolicySpec{
-				Ingress: []multiv1beta2.MultiNetworkPolicyIngressRule{
+			Spec: multiv1beta1.MultiNetworkPolicySpec{
+				Ingress: []multiv1beta1.MultiNetworkPolicyIngressRule{
 					{
-						From: []multiv1beta2.MultiNetworkPolicyPeer{
+						From: []multiv1beta1.MultiNetworkPolicyPeer{
 							{
 								NamespaceSelector: &metav1.LabelSelector{
 									MatchLabels: map[string]string{
@@ -1517,23 +1431,23 @@ COMMIT
 	It("egress rules ipblock", func() {
 		port := intstr.FromInt(8888)
 		protoTCP := v1.ProtocolTCP
-		egressPolicies1 := &multiv1beta2.MultiNetworkPolicy{
+		egressPolicies1 := &multiv1beta1.MultiNetworkPolicy{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "EgressPolicies1",
 				Namespace: "testns1",
 			},
-			Spec: multiv1beta2.MultiNetworkPolicySpec{
-				Egress: []multiv1beta2.MultiNetworkPolicyEgressRule{
+			Spec: multiv1beta1.MultiNetworkPolicySpec{
+				Egress: []multiv1beta1.MultiNetworkPolicyEgressRule{
 					{
-						Ports: []multiv1beta2.MultiNetworkPolicyPort{
+						Ports: []multiv1beta1.MultiNetworkPolicyPort{
 							{
 								Protocol: &protoTCP,
 								Port:     &port,
 							},
 						},
-						To: []multiv1beta2.MultiNetworkPolicyPeer{
+						To: []multiv1beta1.MultiNetworkPolicyPeer{
 							{
-								IPBlock: &multiv1beta2.IPBlock{
+								IPBlock: &multiv1beta1.IPBlock{
 									CIDR:   "10.1.1.1/24",
 									Except: []string{"10.1.1.254"},
 								},
@@ -1610,21 +1524,21 @@ COMMIT
 	It("egress rules podselector/matchlabels", func() {
 		port := intstr.FromInt(8888)
 		protoTCP := v1.ProtocolTCP
-		egressPolicies1 := &multiv1beta2.MultiNetworkPolicy{
+		egressPolicies1 := &multiv1beta1.MultiNetworkPolicy{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "EgressPolicies1",
 				Namespace: "testns1",
 			},
-			Spec: multiv1beta2.MultiNetworkPolicySpec{
-				Egress: []multiv1beta2.MultiNetworkPolicyEgressRule{
+			Spec: multiv1beta1.MultiNetworkPolicySpec{
+				Egress: []multiv1beta1.MultiNetworkPolicyEgressRule{
 					{
-						Ports: []multiv1beta2.MultiNetworkPolicyPort{
+						Ports: []multiv1beta1.MultiNetworkPolicyPort{
 							{
 								Protocol: &protoTCP,
 								Port:     &port,
 							},
 						},
-						To: []multiv1beta2.MultiNetworkPolicyPeer{
+						To: []multiv1beta1.MultiNetworkPolicyPeer{
 							{
 								PodSelector: &metav1.LabelSelector{
 									MatchLabels: map[string]string{
@@ -1713,24 +1627,24 @@ COMMIT
 
 	It("default values", func() {
 		port := intstr.FromInt(8888)
-		policies1 := &multiv1beta2.MultiNetworkPolicy{
+		policies1 := &multiv1beta1.MultiNetworkPolicy{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "policies1",
 				Namespace: "testns1",
 			},
-			Spec: multiv1beta2.MultiNetworkPolicySpec{
-				Ingress: []multiv1beta2.MultiNetworkPolicyIngressRule{
+			Spec: multiv1beta1.MultiNetworkPolicySpec{
+				Ingress: []multiv1beta1.MultiNetworkPolicyIngressRule{
 					{
-						Ports: []multiv1beta2.MultiNetworkPolicyPort{
+						Ports: []multiv1beta1.MultiNetworkPolicyPort{
 							{
 								Port: &port,
 							},
 						},
 					},
 				},
-				Egress: []multiv1beta2.MultiNetworkPolicyEgressRule{
+				Egress: []multiv1beta1.MultiNetworkPolicyEgressRule{
 					{
-						Ports: []multiv1beta2.MultiNetworkPolicyPort{
+						Ports: []multiv1beta1.MultiNetworkPolicyPort{
 							{
 								Port: &port,
 							},
@@ -1782,7 +1696,7 @@ COMMIT
 
 	It("policyType should be implicitly inferred", func() {
 
-		policy1 := &multiv1beta2.MultiNetworkPolicy{
+		policy1 := &multiv1beta1.MultiNetworkPolicy{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "ingressPolicies1",
 				Namespace: "testns1",
@@ -1790,14 +1704,14 @@ COMMIT
 					PolicyNetworkAnnotation: "net-attach1",
 				},
 			},
-			Spec: multiv1beta2.MultiNetworkPolicySpec{
+			Spec: multiv1beta1.MultiNetworkPolicySpec{
 				PodSelector: metav1.LabelSelector{
 					MatchLabels: map[string]string{
 						"role": "targetpod",
 					},
 				},
-				Ingress: []multiv1beta2.MultiNetworkPolicyIngressRule{{
-					From: []multiv1beta2.MultiNetworkPolicyPeer{{
+				Ingress: []multiv1beta1.MultiNetworkPolicyIngressRule{{
+					From: []multiv1beta1.MultiNetworkPolicyPeer{{
 						PodSelector: &metav1.LabelSelector{
 							MatchLabels: map[string]string{
 								"foobar": "enabled",
@@ -1893,14 +1807,14 @@ COMMIT
 	Context("IPv6", func() {
 		It("shoud avoid using IPv4 addresses on ip6tables", func() {
 
-			policy1 := &multiv1beta2.MultiNetworkPolicy{
+			policy1 := &multiv1beta1.MultiNetworkPolicy{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "ingressPolicies1",
 					Namespace: "testns1",
 				},
-				Spec: multiv1beta2.MultiNetworkPolicySpec{
-					Ingress: []multiv1beta2.MultiNetworkPolicyIngressRule{{
-						From: []multiv1beta2.MultiNetworkPolicyPeer{{
+				Spec: multiv1beta1.MultiNetworkPolicySpec{
+					Ingress: []multiv1beta1.MultiNetworkPolicyIngressRule{{
+						From: []multiv1beta1.MultiNetworkPolicyPeer{{
 							PodSelector: &metav1.LabelSelector{
 								MatchLabels: map[string]string{
 									"foobar": "enabled",
@@ -1908,8 +1822,8 @@ COMMIT
 							},
 						}},
 					}},
-					Egress: []multiv1beta2.MultiNetworkPolicyEgressRule{{
-						To: []multiv1beta2.MultiNetworkPolicyPeer{{
+					Egress: []multiv1beta1.MultiNetworkPolicyEgressRule{{
+						To: []multiv1beta1.MultiNetworkPolicyPeer{{
 							PodSelector: &metav1.LabelSelector{
 								MatchLabels: map[string]string{
 									"foobar": "enabled",
@@ -1992,14 +1906,14 @@ COMMIT
 
 		It("shoud manage dual stack networks", func() {
 
-			policy1 := &multiv1beta2.MultiNetworkPolicy{
+			policy1 := &multiv1beta1.MultiNetworkPolicy{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "ingressPolicies1",
 					Namespace: "testns1",
 				},
-				Spec: multiv1beta2.MultiNetworkPolicySpec{
-					Ingress: []multiv1beta2.MultiNetworkPolicyIngressRule{{
-						From: []multiv1beta2.MultiNetworkPolicyPeer{{
+				Spec: multiv1beta1.MultiNetworkPolicySpec{
+					Ingress: []multiv1beta1.MultiNetworkPolicyIngressRule{{
+						From: []multiv1beta1.MultiNetworkPolicyPeer{{
 							PodSelector: &metav1.LabelSelector{
 								MatchLabels: map[string]string{
 									"foobar": "enabled",
@@ -2007,8 +1921,8 @@ COMMIT
 							},
 						}},
 					}},
-					Egress: []multiv1beta2.MultiNetworkPolicyEgressRule{{
-						To: []multiv1beta2.MultiNetworkPolicyPeer{{
+					Egress: []multiv1beta1.MultiNetworkPolicyEgressRule{{
+						To: []multiv1beta1.MultiNetworkPolicyPeer{{
 							PodSelector: &metav1.LabelSelector{
 								MatchLabels: map[string]string{
 									"foobar": "enabled",
@@ -2160,23 +2074,23 @@ COMMIT
 	It("ingress rules ipblock", func() {
 		port := intstr.FromInt(8888)
 		protoTCP := v1.ProtocolTCP
-		ingressPolicies1 := &multiv1beta2.MultiNetworkPolicy{
+		ingressPolicies1 := &multiv1beta1.MultiNetworkPolicy{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "ingressPolicies1",
 				Namespace: "testns1",
 			},
-			Spec: multiv1beta2.MultiNetworkPolicySpec{
-				Ingress: []multiv1beta2.MultiNetworkPolicyIngressRule{
+			Spec: multiv1beta1.MultiNetworkPolicySpec{
+				Ingress: []multiv1beta1.MultiNetworkPolicyIngressRule{
 					{
-						Ports: []multiv1beta2.MultiNetworkPolicyPort{
+						Ports: []multiv1beta1.MultiNetworkPolicyPort{
 							{
 								Protocol: &protoTCP,
 								Port:     &port,
 							},
 						},
-						From: []multiv1beta2.MultiNetworkPolicyPeer{
+						From: []multiv1beta1.MultiNetworkPolicyPeer{
 							{
-								IPBlock: &multiv1beta2.IPBlock{
+								IPBlock: &multiv1beta1.IPBlock{
 									CIDR:   "10.1.1.1/24",
 									Except: []string{"10.1.1.1"},
 								},
@@ -2237,21 +2151,21 @@ COMMIT
 	It("ingress rules podselector/matchlabels", func() {
 		port := intstr.FromInt(8888)
 		protoTCP := v1.ProtocolTCP
-		ingressPolicies1 := &multiv1beta2.MultiNetworkPolicy{
+		ingressPolicies1 := &multiv1beta1.MultiNetworkPolicy{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "ingressPolicies1",
 				Namespace: "testns1",
 			},
-			Spec: multiv1beta2.MultiNetworkPolicySpec{
-				Ingress: []multiv1beta2.MultiNetworkPolicyIngressRule{
+			Spec: multiv1beta1.MultiNetworkPolicySpec{
+				Ingress: []multiv1beta1.MultiNetworkPolicyIngressRule{
 					{
-						Ports: []multiv1beta2.MultiNetworkPolicyPort{
+						Ports: []multiv1beta1.MultiNetworkPolicyPort{
 							{
 								Protocol: &protoTCP,
 								Port:     &port,
 							},
 						},
-						From: []multiv1beta2.MultiNetworkPolicyPeer{
+						From: []multiv1beta1.MultiNetworkPolicyPeer{
 							{
 								PodSelector: &metav1.LabelSelector{
 									MatchLabels: map[string]string{
@@ -2327,23 +2241,23 @@ COMMIT
 	It("egress rules ipblock", func() {
 		port := intstr.FromInt(8888)
 		protoTCP := v1.ProtocolTCP
-		egressPolicies1 := &multiv1beta2.MultiNetworkPolicy{
+		egressPolicies1 := &multiv1beta1.MultiNetworkPolicy{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "EgressPolicies1",
 				Namespace: "testns1",
 			},
-			Spec: multiv1beta2.MultiNetworkPolicySpec{
-				Egress: []multiv1beta2.MultiNetworkPolicyEgressRule{
+			Spec: multiv1beta1.MultiNetworkPolicySpec{
+				Egress: []multiv1beta1.MultiNetworkPolicyEgressRule{
 					{
-						Ports: []multiv1beta2.MultiNetworkPolicyPort{
+						Ports: []multiv1beta1.MultiNetworkPolicyPort{
 							{
 								Protocol: &protoTCP,
 								Port:     &port,
 							},
 						},
-						To: []multiv1beta2.MultiNetworkPolicyPeer{
+						To: []multiv1beta1.MultiNetworkPolicyPeer{
 							{
-								IPBlock: &multiv1beta2.IPBlock{
+								IPBlock: &multiv1beta1.IPBlock{
 									CIDR:   "10.1.1.1/24",
 									Except: []string{"10.1.1.1"},
 								},
@@ -2404,21 +2318,21 @@ COMMIT
 	It("egress rules podselector/matchlabels", func() {
 		port := intstr.FromInt(8888)
 		protoTCP := v1.ProtocolTCP
-		egressPolicies1 := &multiv1beta2.MultiNetworkPolicy{
+		egressPolicies1 := &multiv1beta1.MultiNetworkPolicy{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "EgressPolicies1",
 				Namespace: "testns1",
 			},
-			Spec: multiv1beta2.MultiNetworkPolicySpec{
-				Egress: []multiv1beta2.MultiNetworkPolicyEgressRule{
+			Spec: multiv1beta1.MultiNetworkPolicySpec{
+				Egress: []multiv1beta1.MultiNetworkPolicyEgressRule{
 					{
-						Ports: []multiv1beta2.MultiNetworkPolicyPort{
+						Ports: []multiv1beta1.MultiNetworkPolicyPort{
 							{
 								Protocol: &protoTCP,
 								Port:     &port,
 							},
 						},
-						To: []multiv1beta2.MultiNetworkPolicyPeer{
+						To: []multiv1beta1.MultiNetworkPolicyPeer{
 							{
 								PodSelector: &metav1.LabelSelector{
 									MatchLabels: map[string]string{

@@ -29,10 +29,10 @@ import (
 
 	"github.com/k8snetworkplumbingwg/multi-networkpolicy-iptables/pkg/controllers"
 	multiutils "github.com/k8snetworkplumbingwg/multi-networkpolicy-iptables/pkg/utils"
-	multiv1beta2 "github.com/k8snetworkplumbingwg/multi-networkpolicy/pkg/apis/k8s.cni.cncf.io/v1beta2"
+	multiv1beta1 "github.com/k8snetworkplumbingwg/multi-networkpolicy/pkg/apis/k8s.cni.cncf.io/v1beta1"
 	multiclient "github.com/k8snetworkplumbingwg/multi-networkpolicy/pkg/client/clientset/versioned"
 	multiinformer "github.com/k8snetworkplumbingwg/multi-networkpolicy/pkg/client/informers/externalversions"
-	multilisterv1beta2 "github.com/k8snetworkplumbingwg/multi-networkpolicy/pkg/client/listers/k8s.cni.cncf.io/v1beta2"
+	multilisterv1beta1 "github.com/k8snetworkplumbingwg/multi-networkpolicy/pkg/client/listers/k8s.cni.cncf.io/v1beta1"
 	netdefv1 "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
 	netdefclient "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/client/clientset/versioned"
 	netdefinformerv1 "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/client/informers/externalversions"
@@ -92,7 +92,7 @@ type Server struct {
 	nsSynced     bool
 
 	podLister    corelisters.PodLister
-	policyLister multilisterv1beta2.MultiNetworkPolicyLister
+	policyLister multilisterv1beta1.MultiNetworkPolicyLister
 
 	syncRunner       *async.BoundedFrequencyRunner
 	syncRunnerStopCh chan struct{}
@@ -126,10 +126,10 @@ func (s *Server) Run(_ string, stopCh chan struct{}) {
 
 	policyInformerFactory := multiinformer.NewSharedInformerFactoryWithOptions(
 		s.NetworkPolicyClient, s.ConfigSyncPeriod)
-	s.policyLister = policyInformerFactory.K8sCniCncfIo().V1beta2().MultiNetworkPolicies().Lister()
+	s.policyLister = policyInformerFactory.K8sCniCncfIo().V1beta1().MultiNetworkPolicies().Lister()
 
 	policyConfig := controllers.NewNetworkPolicyConfig(
-		policyInformerFactory.K8sCniCncfIo().V1beta2().MultiNetworkPolicies(), s.ConfigSyncPeriod)
+		policyInformerFactory.K8sCniCncfIo().V1beta1().MultiNetworkPolicies(), s.ConfigSyncPeriod)
 	policyConfig.RegisterEventHandler(s)
 	go policyConfig.Run(wait.NeverStop)
 	policyInformerFactory.Start(wait.NeverStop)
@@ -300,7 +300,7 @@ func (s *Server) Sync() {
 
 // AllSynced ...
 func (s *Server) AllSynced() bool {
-	return (s.policySynced && s.netdefSynced && s.nsSynced)
+	return (s.policySynced == true && s.netdefSynced == true && s.nsSynced == true)
 }
 
 // OnPodAdd ...
@@ -344,13 +344,13 @@ func (s *Server) OnPodSynced() {
 }
 
 // OnPolicyAdd ...
-func (s *Server) OnPolicyAdd(policy *multiv1beta2.MultiNetworkPolicy) {
+func (s *Server) OnPolicyAdd(policy *multiv1beta1.MultiNetworkPolicy) {
 	klog.V(4).Infof("OnPolicyAdd")
 	s.OnPolicyUpdate(nil, policy)
 }
 
 // OnPolicyUpdate ...
-func (s *Server) OnPolicyUpdate(oldPolicy, policy *multiv1beta2.MultiNetworkPolicy) {
+func (s *Server) OnPolicyUpdate(oldPolicy, policy *multiv1beta1.MultiNetworkPolicy) {
 	klog.V(4).Infof("OnPolicyUpdate %s -> %s", policyNamespacedName(oldPolicy), policyNamespacedName(policy))
 	if s.policyChanges.Update(oldPolicy, policy) && s.isInitialized() {
 		s.Sync()
@@ -358,7 +358,7 @@ func (s *Server) OnPolicyUpdate(oldPolicy, policy *multiv1beta2.MultiNetworkPoli
 }
 
 // OnPolicyDelete ...
-func (s *Server) OnPolicyDelete(policy *multiv1beta2.MultiNetworkPolicy) {
+func (s *Server) OnPolicyDelete(policy *multiv1beta1.MultiNetworkPolicy) {
 	klog.V(4).Infof("OnPolicyDelete")
 	s.OnPolicyUpdate(policy, nil)
 }
@@ -614,7 +614,7 @@ func (s *Server) generatePolicyRulesForPodAndFamily(pod *v1.Pod, podInfo *contro
 		policyNetworks := strings.Split(policyNetworksAnnot, ",")
 		for pidx, networkName := range policyNetworks {
 			// fill namespace
-			if !strings.ContainsAny(networkName, "/") {
+			if strings.IndexAny(networkName, "/") == -1 {
 				policyNetworks[pidx] = fmt.Sprintf("%s/%s", policy.GetNamespace(), networkName)
 			}
 		}
@@ -681,7 +681,7 @@ func namespaceName(o *v1.Namespace) string {
 	return o.GetName()
 }
 
-func policyNamespacedName(o *multiv1beta2.MultiNetworkPolicy) string {
+func policyNamespacedName(o *multiv1beta1.MultiNetworkPolicy) string {
 	if o == nil {
 		return "<nil>"
 	}
@@ -695,13 +695,13 @@ func nadNamespacedName(o *netdefv1.NetworkAttachmentDefinition) string {
 	return o.GetNamespace() + "/" + o.GetName()
 }
 
-func getEnabledPolicyTypes(policy *multiv1beta2.MultiNetworkPolicy) (bool, bool) {
+func getEnabledPolicyTypes(policy *multiv1beta1.MultiNetworkPolicy) (bool, bool) {
 	var ingressEnable, egressEnable bool
 	if len(policy.Spec.PolicyTypes) > 0 {
 		for _, v := range policy.Spec.PolicyTypes {
-			if strings.EqualFold(string(v), string(multiv1beta2.PolicyTypeIngress)) {
+			if strings.EqualFold(string(v), string(multiv1beta1.PolicyTypeIngress)) {
 				ingressEnable = true
-			} else if strings.EqualFold(string(v), string(multiv1beta2.PolicyTypeEgress)) {
+			} else if strings.EqualFold(string(v), string(multiv1beta1.PolicyTypeEgress)) {
 				egressEnable = true
 			}
 		}
