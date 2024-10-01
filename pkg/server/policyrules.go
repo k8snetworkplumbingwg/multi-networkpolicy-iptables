@@ -255,11 +255,19 @@ func (ipt *iptableBuffer) renderIngressPorts(_ *Server, podInfo *controllers.Pod
 			if !podIntf.CheckPolicyNetwork(policyNetworks) {
 				continue
 			}
-			writeLine(ipt.ingressPorts, "-A", chainName,
-				"-i", podIntf.InterfaceName,
-				"-m", proto, "-p", proto, "--dport", port.Port.String(),
-				"-j", "MARK", "--set-xmark", "0x10000/0x10000")
-			validPorts++
+			if port.EndPort != nil {
+				writeLine(ipt.ingressPorts, "-A", chainName,
+					"-i", podIntf.InterfaceName,
+					"-m", proto, "-p", proto, "--dport", fmt.Sprintf("%s:%d", port.Port.String(), *port.EndPort),
+					"-j", "MARK", "--set-xmark", "0x10000/0x10000")
+				validPorts++
+			} else {
+				writeLine(ipt.ingressPorts, "-A", chainName,
+					"-i", podIntf.InterfaceName,
+					"-m", proto, "-p", proto, "--dport", port.Port.String(),
+					"-j", "MARK", "--set-xmark", "0x10000/0x10000")
+				validPorts++
+			}
 		}
 	}
 
