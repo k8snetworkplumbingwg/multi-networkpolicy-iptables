@@ -23,7 +23,7 @@ import (
 	"strings"
 
 	"github.com/k8snetworkplumbingwg/multi-networkpolicy-iptables/pkg/controllers"
-	multiv1beta1 "github.com/k8snetworkplumbingwg/multi-networkpolicy/pkg/apis/k8s.cni.cncf.io/v1beta1"
+	multiv1beta2 "github.com/k8snetworkplumbingwg/multi-networkpolicy/pkg/apis/k8s.cni.cncf.io/v1beta2"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -141,10 +141,10 @@ func (ipt *iptableBuffer) FinalizeRules() {
 
 func (ipt *iptableBuffer) SaveRules(path string) error {
 	file, err := os.Create(path)
-	defer file.Close()
 	if err != nil {
 		return err
 	}
+	defer file.Close()
 	//_, err = ipt.filterRules.WriteTo(file)
 	fmt.Fprintf(file, "%s", ipt.filterRules.String())
 	return err
@@ -216,7 +216,7 @@ func (ipt *iptableBuffer) renderIngressCommon(s *Server) {
 	writeLine(ipt.policyCommon, "-A", ingressCommonChain, "-m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT")
 }
 
-func (ipt *iptableBuffer) renderIngress(s *Server, podInfo *controllers.PodInfo, idx int, policy *multiv1beta1.MultiNetworkPolicy, policyNetworks []string) {
+func (ipt *iptableBuffer) renderIngress(s *Server, podInfo *controllers.PodInfo, idx int, policy *multiv1beta2.MultiNetworkPolicy, policyNetworks []string) {
 	chainName := fmt.Sprintf("MULTI-%d-INGRESS", idx)
 	ipt.CreateFilterChain(chainName)
 
@@ -240,7 +240,7 @@ func (ipt *iptableBuffer) renderIngress(s *Server, podInfo *controllers.PodInfo,
 	}
 }
 
-func (ipt *iptableBuffer) renderIngressPorts(_ *Server, podInfo *controllers.PodInfo, pIndex, iIndex int, ports []multiv1beta1.MultiNetworkPolicyPort, policyNetworks []string) {
+func (ipt *iptableBuffer) renderIngressPorts(_ *Server, podInfo *controllers.PodInfo, pIndex, iIndex int, ports []multiv1beta2.MultiNetworkPolicyPort, policyNetworks []string) {
 	chainName := fmt.Sprintf("MULTI-%d-INGRESS-%d-PORTS", pIndex, iIndex)
 	ipt.CreateFilterChain(chainName)
 
@@ -269,10 +269,9 @@ func (ipt *iptableBuffer) renderIngressPorts(_ *Server, podInfo *controllers.Pod
 			"-m", "comment", "--comment", "\"no ingress ports, skipped\"",
 			"-j", "MARK", "--set-xmark", "0x10000/0x10000")
 	}
-	return
 }
 
-func (ipt *iptableBuffer) renderIngressFrom(s *Server, podInfo *controllers.PodInfo, pIndex, iIndex int, from []multiv1beta1.MultiNetworkPolicyPeer, policyNetworks []string) {
+func (ipt *iptableBuffer) renderIngressFrom(s *Server, podInfo *controllers.PodInfo, pIndex, iIndex int, from []multiv1beta2.MultiNetworkPolicyPeer, policyNetworks []string) {
 	chainName := fmt.Sprintf("MULTI-%d-INGRESS-%d-FROM", pIndex, iIndex)
 	ipt.CreateFilterChain(chainName)
 
@@ -391,7 +390,6 @@ func (ipt *iptableBuffer) renderIngressFrom(s *Server, podInfo *controllers.PodI
 			"-m", "comment", "--comment", "\"no ingress from, skipped\"",
 			"-j", "MARK", "--set-xmark", "0x20000/0x20000")
 	}
-	return
 }
 
 func (ipt *iptableBuffer) renderEgressCommon(s *Server) {
@@ -442,7 +440,7 @@ func (ipt *iptableBuffer) renderEgressCommon(s *Server) {
 	writeLine(ipt.policyCommon, "-A", egressCommonChain, "-m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT")
 }
 
-func (ipt *iptableBuffer) renderEgress(s *Server, podInfo *controllers.PodInfo, idx int, policy *multiv1beta1.MultiNetworkPolicy, policyNetworks []string) {
+func (ipt *iptableBuffer) renderEgress(s *Server, podInfo *controllers.PodInfo, idx int, policy *multiv1beta2.MultiNetworkPolicy, policyNetworks []string) {
 	chainName := fmt.Sprintf("MULTI-%d-EGRESS", idx)
 	ipt.CreateFilterChain(chainName)
 
@@ -465,7 +463,7 @@ func (ipt *iptableBuffer) renderEgress(s *Server, podInfo *controllers.PodInfo, 
 	}
 }
 
-func (ipt *iptableBuffer) renderEgressPorts(_ *Server, podInfo *controllers.PodInfo, pIndex, iIndex int, ports []multiv1beta1.MultiNetworkPolicyPort, policyNetworks []string) {
+func (ipt *iptableBuffer) renderEgressPorts(_ *Server, podInfo *controllers.PodInfo, pIndex, iIndex int, ports []multiv1beta2.MultiNetworkPolicyPort, policyNetworks []string) {
 	chainName := fmt.Sprintf("MULTI-%d-EGRESS-%d-PORTS", pIndex, iIndex)
 	ipt.CreateFilterChain(chainName)
 
@@ -494,10 +492,9 @@ func (ipt *iptableBuffer) renderEgressPorts(_ *Server, podInfo *controllers.PodI
 			"-m", "comment", "--comment", "\"no egress ports, skipped\"",
 			"-j", "MARK", "--set-xmark", "0x10000/0x10000")
 	}
-	return
 }
 
-func (ipt *iptableBuffer) renderEgressTo(s *Server, podInfo *controllers.PodInfo, pIndex, iIndex int, to []multiv1beta1.MultiNetworkPolicyPeer, policyNetworks []string) {
+func (ipt *iptableBuffer) renderEgressTo(s *Server, podInfo *controllers.PodInfo, pIndex, iIndex int, to []multiv1beta2.MultiNetworkPolicyPeer, policyNetworks []string) {
 	chainName := fmt.Sprintf("MULTI-%d-EGRESS-%d-TO", pIndex, iIndex)
 	ipt.CreateFilterChain(chainName)
 
@@ -618,7 +615,6 @@ func (ipt *iptableBuffer) renderEgressTo(s *Server, podInfo *controllers.PodInfo
 			"-m", "comment", "--comment", "\"no egress to, skipped\"",
 			"-j", "MARK", "--set-xmark", "0x20000/0x20000")
 	}
-	return
 }
 
 func (ipt *iptableBuffer) isIPFamilyCompatible(ip string) bool {
