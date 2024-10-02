@@ -30,7 +30,7 @@ kind export kubeconfig
 sleep 1
 
 # install calico
-kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/master/manifests/calico.yaml
+kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.1/manifests/calico.yaml
 kubectl -n kube-system set env daemonset/calico-node FELIX_IGNORELOOSERPF=true
 kubectl -n kube-system set env daemonset/calico-node FELIX_XDPENABLED=false
 
@@ -44,6 +44,8 @@ kubectl create -f cni-install.yml
 sleep 3
 kubectl -n kube-system wait --for=condition=ready -l name=cni-plugins pod --timeout=300s
 
+#install bond-cni
+kubectl create -f  https://raw.githubusercontent.com/k8snetworkplumbingwg/bond-cni/refs/heads/master/manifests/bond-cni.yaml
 
 # install multi-networkpolicy API
 kubectl apply -f https://raw.githubusercontent.com/k8snetworkplumbingwg/multi-networkpolicy/master/scheme.yml
