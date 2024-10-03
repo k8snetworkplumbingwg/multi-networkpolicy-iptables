@@ -497,6 +497,9 @@ func (ipt *iptableBuffer) renderEgressPorts(_ *Server, podInfo *controllers.PodI
 			dport := ""
 			if port.Port != nil {
 				dport = "--dport " + port.Port.String()
+				if port.EndPort != nil {
+					dport = fmt.Sprintf("--dport %s:%d", port.Port.String(), *port.EndPort)
+				}
 			}
 
 			writeLine(ipt.egressPorts, "-A", chainName,
