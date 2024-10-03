@@ -1608,6 +1608,92 @@ COMMIT
 		Expect(buf.filterRules.String()).To(Equal(finalizedRules))
 	})
 
+	It("egress rules endport", func() {
+		port0 := intstr.FromInt(8888)
+		port1 := intstr.FromInt(9999)
+		endport := int32(11111)
+		protoTCP := v1.ProtocolTCP
+		egressPolicies1 := &multiv1beta1.MultiNetworkPolicy{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "EgressPolicies1",
+				Namespace: "testns1",
+			},
+			Spec: multiv1beta1.MultiNetworkPolicySpec{
+				Egress: []multiv1beta1.MultiNetworkPolicyEgressRule{
+					{
+						Ports: []multiv1beta1.MultiNetworkPolicyPort{
+							{
+								Protocol: &protoTCP,
+								Port:     &port0,
+							},
+							{
+								Protocol: &protoTCP,
+								Port:     &port1,
+								EndPort:  &endport,
+							},
+						},
+					},
+				},
+			},
+		}
+
+		ipt := fakeiptables.NewFake()
+		Expect(ipt).NotTo(BeNil())
+		buf := newIptableBuffer()
+		Expect(buf).NotTo(BeNil())
+
+		// verify buf initialized at init
+		buf.Init(ipt)
+		s := NewFakeServer("samplehost")
+		Expect(s).NotTo(BeNil())
+
+		Expect(s.netdefChanges.Update(
+			nil,
+			NewNetDef("testns1", "net-attach1", NewCNIConfig("testCNI", "multi")))).To(BeTrue())
+		Expect(s.netdefChanges.GetPluginType(types.NamespacedName{Namespace: "testns1", Name: "net-attach1"})).To(Equal("multi"))
+
+		pod1 := NewFakePodWithNetAnnotation(
+			"testns1",
+			"testpod1",
+			"net-attach1",
+			NewFakeNetworkStatus("testns1", "net-attach1", "192.168.1.1", "10.1.1.1"),
+			nil)
+		AddPod(s, pod1)
+		podInfo1, err := s.podMap.GetPodInfo(pod1)
+		Expect(err).NotTo(HaveOccurred())
+
+		buf.renderEgress(s, podInfo1, 0, egressPolicies1, []string{"testns1/net-attach1"})
+
+		portRules :=
+			`-A MULTI-0-EGRESS-0-PORTS -o net1 -m tcp -p tcp --dport 8888 -j MARK --set-xmark 0x10000/0x10000
+-A MULTI-0-EGRESS-0-PORTS -o net1 -m tcp -p tcp --dport 9999:11111 -j MARK --set-xmark 0x10000/0x10000
+`
+		Expect(buf.egressPorts.String()).To(Equal(portRules))
+
+		buf.FinalizeRules()
+		finalizedRules :=
+			`*filter
+:MULTI-INGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
+:MULTI-EGRESS - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
+:MULTI-0-EGRESS - [0:0]
+:MULTI-0-EGRESS-0-PORTS - [0:0]
+:MULTI-0-EGRESS-0-TO - [0:0]
+-A MULTI-EGRESS -m comment --comment "policy:EgressPolicies1 net-attach-def:testns1/net-attach1" -o net1 -j MULTI-0-EGRESS
+-A MULTI-EGRESS -m mark --mark 0x30000/0x30000 -j RETURN
+-A MULTI-0-EGRESS -j MARK --set-xmark 0x0/0x30000
+-A MULTI-0-EGRESS -j MULTI-0-EGRESS-0-PORTS
+-A MULTI-0-EGRESS -j MULTI-0-EGRESS-0-TO
+-A MULTI-0-EGRESS -m mark --mark 0x30000/0x30000 -j RETURN
+-A MULTI-0-EGRESS-0-PORTS -o net1 -m tcp -p tcp --dport 8888 -j MARK --set-xmark 0x10000/0x10000
+-A MULTI-0-EGRESS-0-PORTS -o net1 -m tcp -p tcp --dport 9999:11111 -j MARK --set-xmark 0x10000/0x10000
+-A MULTI-0-EGRESS-0-TO -m comment --comment "no egress to, skipped" -j MARK --set-xmark 0x20000/0x20000
+COMMIT
+`
+		Expect(buf.filterRules.String()).To(Equal(finalizedRules))
+	})
+
 	It("egress rules podselector/matchlabels", func() {
 		port := intstr.FromInt(8888)
 		protoTCP := v1.ProtocolTCP
