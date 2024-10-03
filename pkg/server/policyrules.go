@@ -255,17 +255,14 @@ func (ipt *iptableBuffer) renderIngressPorts(_ *Server, podInfo *controllers.Pod
 			if !podIntf.CheckPolicyNetwork(policyNetworks) {
 				continue
 			}
+			dport := port.Port.String()
 			if port.EndPort != nil {
-				writeLine(ipt.ingressPorts, "-A", chainName,
-					"-i", podIntf.InterfaceName,
-					"-m", proto, "-p", proto, "--dport", fmt.Sprintf("%s:%d", port.Port.String(), *port.EndPort),
-					"-j", "MARK", "--set-xmark", "0x10000/0x10000")
-			} else {
-				writeLine(ipt.ingressPorts, "-A", chainName,
-					"-i", podIntf.InterfaceName,
-					"-m", proto, "-p", proto, "--dport", port.Port.String(),
-					"-j", "MARK", "--set-xmark", "0x10000/0x10000")
+				dport = fmt.Sprintf("%s:%d", port.Port.String(), *port.EndPort)
 			}
+			writeLine(ipt.ingressPorts, "-A", chainName,
+				"-i", podIntf.InterfaceName,
+				"-m", proto, "-p", proto, "--dport", dport,
+				"-j", "MARK", "--set-xmark", "0x10000/0x10000")
 			validPorts++
 		}
 	}
@@ -485,9 +482,13 @@ func (ipt *iptableBuffer) renderEgressPorts(_ *Server, podInfo *controllers.PodI
 			if !podIntf.CheckPolicyNetwork(policyNetworks) {
 				continue
 			}
+			dport := port.Port.String()
+			if port.EndPort != nil {
+				dport = fmt.Sprintf("%s:%d", port.Port.String(), *port.EndPort)
+			}
 			writeLine(ipt.egressPorts, "-A", chainName,
 				"-o", podIntf.InterfaceName,
-				"-m", proto, "-p", proto, "--dport", port.Port.String(),
+				"-m", proto, "-p", proto, "--dport", dport,
 				"-j", "MARK", "--set-xmark", "0x10000/0x10000")
 			validPorts++
 		}
