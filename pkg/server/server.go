@@ -551,7 +551,7 @@ func (s *Server) generatePolicyRulesForPod(pod *v1.Pod, podInfo *controllers.Pod
 }
 
 func (s *Server) generatePolicyRulesForPodAndFamily(pod *v1.Pod, podInfo *controllers.PodInfo, iptables utiliptables.Interface) error {
-	klog.V(8).Infof("Generate rules for Pod: %v/%v\n", podInfo.Namespace, podInfo.Name)
+	klog.V(4).Infof("Generate rules for Pod: %v/%v\n", podInfo.Namespace, podInfo.Name)
 	// -t filter -N MULTI-INGRESS # ensure chain
 	iptables.EnsureChain(utiliptables.TableFilter, ingressChain)
 	// -t filter -N MULTI-EGRESS # ensure chain
