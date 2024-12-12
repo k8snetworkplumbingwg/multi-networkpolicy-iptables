@@ -18,6 +18,8 @@ setup() {
 	kubectl create -f ipblock-list.yml
 	run kubectl -n test-ipblock-list wait --for=condition=ready -l app=test-ipblock-list pod --timeout=${kubewait_timeout}
 	[ "$status" -eq  "0" ]
+
+	sleep 3
 }
 
 @test "test-ipblock-list check client-a" {

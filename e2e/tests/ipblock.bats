@@ -18,6 +18,8 @@ setup() {
 	kubectl create -f ipblock.yml
 	run kubectl -n test-ipblock wait --for=condition=ready -l app=test-ipblock pod --timeout=${kubewait_timeout}
 	[ "$status" -eq  "0" ]
+
+	sleep 3
 }
 
 @test "check generated iptables rules" {
