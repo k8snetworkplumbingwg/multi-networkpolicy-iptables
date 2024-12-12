@@ -30,7 +30,7 @@ kind export kubeconfig
 sleep 1
 
 # install calico
-kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/master/manifests/calico.yaml
+kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.1/manifests/calico.yaml
 kubectl -n kube-system set env daemonset/calico-node FELIX_IGNORELOOSERPF=true
 kubectl -n kube-system set env daemonset/calico-node FELIX_XDPENABLED=false
 
