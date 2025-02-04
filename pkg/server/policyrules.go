@@ -258,9 +258,15 @@ func (ipt *iptableBuffer) renderIngressPorts(_ *Server, podInfo *controllers.Pod
 			if !podIntf.CheckPolicyNetwork(policyNetworks) {
 				continue
 			}
+
+			dport := ""
+			if port.Port != nil {
+				dport = "--dport " + port.Port.String()
+			}
+
 			writeLine(ipt.ingressPorts, "-A", chainName,
 				"-i", podIntf.InterfaceName,
-				"-m", proto, "-p", proto, "--dport", port.Port.String(),
+				"-m", proto, "-p", proto, dport,
 				"-j", "MARK", "--set-xmark", "0x10000/0x10000")
 			validPorts++
 		}
@@ -483,9 +489,15 @@ func (ipt *iptableBuffer) renderEgressPorts(_ *Server, podInfo *controllers.PodI
 			if !podIntf.CheckPolicyNetwork(policyNetworks) {
 				continue
 			}
+
+			dport := ""
+			if port.Port != nil {
+				dport = "--dport " + port.Port.String()
+			}
+
 			writeLine(ipt.egressPorts, "-A", chainName,
 				"-o", podIntf.InterfaceName,
-				"-m", proto, "-p", proto, "--dport", port.Port.String(),
+				"-m", proto, "-p", proto, dport,
 				"-j", "MARK", "--set-xmark", "0x10000/0x10000")
 			validPorts++
 		}

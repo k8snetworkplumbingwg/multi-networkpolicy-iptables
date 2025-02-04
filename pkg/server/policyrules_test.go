@@ -1804,6 +1804,123 @@ COMMIT
 
 	})
 
+	It("match all ports when only the protocol is specified", func() {
+		// https://github.com/zeeke/multi-networkpolicy/blob/f76867e779b86b5ca6ba0002bfe716876e66e959/scheme.yml#L59
+
+		protoTCP := v1.ProtocolTCP
+		protoUDP := v1.ProtocolTCP
+		policy1 := &multiv1beta1.MultiNetworkPolicy{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "all-ports-policy",
+				Namespace: "testns1",
+				Annotations: map[string]string{
+					PolicyNetworkAnnotation: "net-attach1",
+				},
+			},
+			Spec: multiv1beta1.MultiNetworkPolicySpec{
+				PodSelector: metav1.LabelSelector{
+					MatchLabels: map[string]string{
+						"role": "targetpod",
+					},
+				},
+				Ingress: []multiv1beta1.MultiNetworkPolicyIngressRule{{
+					Ports: []multiv1beta1.MultiNetworkPolicyPort{{
+						Protocol: &protoTCP,
+					}},
+				}},
+				Egress: []multiv1beta1.MultiNetworkPolicyEgressRule{{
+					Ports: []multiv1beta1.MultiNetworkPolicyPort{{
+						Protocol: &protoUDP,
+					}},
+				}},
+			},
+		}
+
+		s := NewFakeServer("samplehost")
+		Expect(s).NotTo(BeNil())
+
+		AddNamespace(s, "testns1")
+
+		Expect(
+			s.netdefChanges.Update(nil, NewNetDef("testns1", "net-attach1", NewCNIConfig("testCNI", "multi"))),
+		).To(BeTrue())
+
+		pod1 := NewFakePodWithNetAnnotation(
+			"testns1",
+			"testpod1",
+			"net-attach1",
+			NewFakeNetworkStatus("testns1", "net-attach1", "192.168.1.1", "10.1.1.1"),
+			map[string]string{
+				"role": "targetpod",
+			})
+		pod1.Spec.NodeName = "samplehost"
+
+		AddPod(s, pod1)
+		podInfo1, err := s.podMap.GetPodInfo(pod1)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(
+			s.policyChanges.Update(nil, policy1),
+		).To(BeTrue())
+		s.policyMap.Update(s.policyChanges)
+
+		result := fakeiptables.NewFake()
+		s.ip4Tables = result
+
+		s.generatePolicyRulesForPod(pod1, podInfo1)
+		fmt.Println(result.Dump.String())
+		Expect(result.Dump.String()).To(Equal(`*nat
+:PREROUTING - [0:0]
+:INPUT - [0:0]
+:OUTPUT - [0:0]
+:POSTROUTING - [0:0]
+-A PREROUTING -i net1 -j RETURN
+COMMIT
+*filter
+:INPUT - [0:0]
+:FORWARD - [0:0]
+:OUTPUT - [0:0]
+:MULTI-INGRESS - [0:0]
+:MULTI-EGRESS - [0:0]
+:MULTI-INGRESS-COMMON - [0:0]
+:MULTI-EGRESS-COMMON - [0:0]
+:MULTI-0-INGRESS - [0:0]
+:MULTI-0-INGRESS-0-PORTS - [0:0]
+:MULTI-0-INGRESS-0-FROM - [0:0]
+:MULTI-0-EGRESS - [0:0]
+:MULTI-0-EGRESS-0-PORTS - [0:0]
+:MULTI-0-EGRESS-0-TO - [0:0]
+-A INPUT -i net1 -j MULTI-INGRESS
+-A OUTPUT -o net1 -j MULTI-EGRESS
+-A MULTI-INGRESS -j MULTI-INGRESS-COMMON
+-A MULTI-INGRESS -m comment --comment "policy:all-ports-policy net-attach-def:testns1/net-attach1" -i net1 -j MULTI-0-INGRESS
+-A MULTI-INGRESS -m mark --mark 0x30000/0x30000 -j RETURN
+-A MULTI-INGRESS -j DROP
+-A MULTI-EGRESS -j MULTI-EGRESS-COMMON
+-A MULTI-EGRESS -m comment --comment "policy:all-ports-policy net-attach-def:testns1/net-attach1" -o net1 -j MULTI-0-EGRESS
+-A MULTI-EGRESS -m mark --mark 0x30000/0x30000 -j RETURN
+-A MULTI-EGRESS -j DROP
+-A MULTI-INGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-EGRESS-COMMON -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A MULTI-0-INGRESS -j MARK --set-xmark 0x0/0x30000
+-A MULTI-0-INGRESS -j MULTI-0-INGRESS-0-PORTS
+-A MULTI-0-INGRESS -j MULTI-0-INGRESS-0-FROM
+-A MULTI-0-INGRESS -m mark --mark 0x30000/0x30000 -j RETURN
+-A MULTI-0-INGRESS-0-PORTS -i net1 -m tcp -p tcp  -j MARK --set-xmark 0x10000/0x10000
+-A MULTI-0-INGRESS-0-FROM -m comment --comment "no ingress from, skipped" -j MARK --set-xmark 0x20000/0x20000
+-A MULTI-0-EGRESS -j MARK --set-xmark 0x0/0x30000
+-A MULTI-0-EGRESS -j MULTI-0-EGRESS-0-PORTS
+-A MULTI-0-EGRESS -j MULTI-0-EGRESS-0-TO
+-A MULTI-0-EGRESS -m mark --mark 0x30000/0x30000 -j RETURN
+-A MULTI-0-EGRESS-0-PORTS -o net1 -m tcp -p tcp  -j MARK --set-xmark 0x10000/0x10000
+-A MULTI-0-EGRESS-0-TO -m comment --comment "no egress to, skipped" -j MARK --set-xmark 0x20000/0x20000
+COMMIT
+*mangle
+COMMIT
+`))
+
+	})
+
 	Context("IPv6", func() {
 		It("shoud avoid using IPv4 addresses on ip6tables", func() {
 
