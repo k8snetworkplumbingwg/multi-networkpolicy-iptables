@@ -9,8 +9,8 @@ require (
 	github.com/k8snetworkplumbingwg/network-attachment-definition-client v0.0.0-20200528071255-22c819bc6e7e
 	github.com/onsi/ginkgo v1.16.4
 	github.com/onsi/gomega v1.27.6
-	github.com/spf13/cobra v1.7.0
-	github.com/spf13/pflag v1.0.5
+	github.com/spf13/cobra v1.9.1
+	github.com/spf13/pflag v1.0.6
 	google.golang.org/grpc v1.56.3
 	k8s.io/api v0.28.8
 	k8s.io/apimachinery v0.28.8
