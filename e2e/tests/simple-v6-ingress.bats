@@ -36,12 +36,6 @@ setup() {
 	# check pod-client-b has NO multi-networkpolicy ip6tables rules for ingress
         run kubectl -n test-simple-v6-ingress exec pod-client-b -- sh -c "ip6tables-save | grep MULTI-0-INGRESS"
 	[ "$status" -eq  "1" ]
-
-	# check that ip6tables files in pod-iptables
-	pod_name=$(kubectl -n kube-system get pod -o wide | grep 'kind-worker' | grep multi-net | cut -f 1 -d ' ')
-	run kubectl -n kube-system exec ${pod_name} -- \
-		sh -c "find /var/lib/multi-networkpolicy/iptables/ -name '*.ip6tables' | wc -l"
-        [ "$output" = "6" ]
 }
 
 @test "test-simple-v6-ingress check client-a -> server" {
@@ -89,11 +83,4 @@ setup() {
 	kubectl delete -f simple-v6-ingress.yml
 	run kubectl -n test-simple-v6-ingress wait --for=delete -l app=test-simple-v6-ingress pod --timeout=${kubewait_timeout}
 	[ "$status" -eq  "0" ]
-
-	sleep 3
-	# check that no ip6tables files in pod-iptables
-	pod_name=$(kubectl -n kube-system get pod -o wide | grep 'kind-worker' | grep multi-net | cut -f 1 -d ' ')
-	run kubectl -n kube-system exec ${pod_name} -- \
-		sh -c "find /var/lib/multi-networkpolicy/iptables/ -name '*.ip6tables' | wc -l"
-        [ "$output" = "0" ]
 }

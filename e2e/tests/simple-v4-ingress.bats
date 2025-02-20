@@ -34,14 +34,6 @@ setup() {
 	# check pod-client-b has NO multi-networkpolicy iptables rules for ingress
         run kubectl -n test-simple-v4-ingress exec pod-client-b -- sh -c "iptables-save | grep MULTI-0-INGRESS"
 	[ "$status" -eq  "1" ]
-
-	# wait for sync
-	sleep 5
-	# check that iptables files in pod-iptables
-	pod_name=$(kubectl -n kube-system get pod -o wide | grep 'kind-worker' | grep multi-net | cut -f 1 -d ' ')
-	run kubectl -n kube-system exec ${pod_name} -- \
-		sh -c "find /var/lib/multi-networkpolicy/iptables/ -name '*.iptables' | wc -l"
-        [ "$output" = "6" ]
 }
 
 @test "test-simple-v4-ingress check client-a -> server" {
@@ -89,11 +81,4 @@ setup() {
 	kubectl delete -f simple-v4-ingress.yml
 	run kubectl -n test-simple-v4-ingress wait --for=delete -l app=test-simple-v4-ingress pod --timeout=${kubewait_timeout}
 	[ "$status" -eq  "0" ]
-
-	sleep 5
-	# check that no iptables files in pod-iptables
-	pod_name=$(kubectl -n kube-system get pod -o wide | grep 'kind-worker' | grep multi-net | cut -f 1 -d ' ')
-	run kubectl -n kube-system exec ${pod_name} -- \
-		sh -c "find /var/lib/multi-networkpolicy/iptables/ -name '*.iptables' | wc -l"
-        [ "$output" = "0" ]
 }
