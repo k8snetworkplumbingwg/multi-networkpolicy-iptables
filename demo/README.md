@@ -10,37 +10,33 @@ kind create cluster
 
 Deploy multus:
 ```
-git clone https://github.com/intel/multus-cni
-cat multus-cni/images/multus-daemonset.yml | kubectl apply -f -
+kubectl apply -f https://raw.githubusercontent.com/k8snetworkplumbingwg/multus-cni/master/deployments/multus-daemonset.yml
 ```
 
 Deploy the MultiNetworkPolicy CRD:
 ```
-git clone https://github.com/k8snetworkplumbingwg/multi-networkpolicy
-kubectl apply -f multi-networkpolicy/scheme.yml
+kubectl apply -f https://raw.githubusercontent.com/k8snetworkplumbingwg/multi-networkpolicy/master/scheme.yml
 ```
 
 Deploy the multi-networkpolicy implementation with iptables:
 ```
-git clone https://github.com/k8snetworkplumbingwg/multi-networkpolicy-iptables
-kubectl apply -f multi-networkpolicy-iptables/demo/deploy.yml
+kubectl apply -f https://raw.githubusercontent.com/k8snetworkplumbingwg/multi-networkpolicy-iptables/master/demo/deploy.yml 
 ```
 
 Copy macvlan cni to the control plane node:
 ```
-git clone https://github.com/containernetworking/plugins
-plugins/build_linux.sh
+curl -sSf -L --retry 5 https://github.com/containernetworking/plugins/releases/download/v1.5.0/cni-plugins-linux-amd64-v1.5.0.tgz | tar -xz -C . ./macvlan
 ...
-docker cp plugins/bin/macvlan kind-control-plane:/opt/cni/bin/
+docker cp macvlan kind-control-plane:/opt/cni/bin/
 ```
 
 Deploy a sample [network attachment definition](demo/net.yml), its
 [policy](demo/policy.yml) and [pod](demo/alpine.yml) that attaches to that
 network:
 ```
-kubectl apply -f multi-networkpolicy-iptables/demo/net.yml
-kubectl apply -f multi-networkpolicy-iptables/demo/policy.yml
-kubectl apply -f multi-networkpolicy-iptables/demo/alpine.yml
+kubectl apply -f https://raw.githubusercontent.com/k8snetworkplumbingwg/multi-networkpolicy-iptables/master/demo/net.yml
+kubectl apply -f https://raw.githubusercontent.com/k8snetworkplumbingwg/multi-networkpolicy-iptables/master/demo/policy.yml
+kubectl apply -f https://raw.githubusercontent.com/k8snetworkplumbingwg/multi-networkpolicy-iptables/master/demo/alpine.yml
 ```
 
 You can the log in to the alpine pod and check the
@@ -52,5 +48,5 @@ kubectl exec -ti alpine -- /bin/sh
 ...
 apk update
 apk add iptables
-iptables -Lv
+iptables -vL
 ```
