@@ -5,7 +5,7 @@ go 1.19
 require (
 	github.com/containernetworking/cni v0.8.1
 	github.com/containernetworking/plugins v0.8.6
-	github.com/k8snetworkplumbingwg/multi-networkpolicy v0.0.0-20200903074708-7b3ce95ae804
+	github.com/k8snetworkplumbingwg/multi-networkpolicy v1.0.1
 	github.com/k8snetworkplumbingwg/network-attachment-definition-client v0.0.0-20200528071255-22c819bc6e7e
 	github.com/onsi/ginkgo v1.16.4
 	github.com/onsi/gomega v1.27.6
