@@ -282,7 +282,6 @@ func (ipt *iptableBuffer) renderIngressPorts(_ *Server, podInfo *controllers.Pod
 			"-m", "comment", "--comment", "\"no ingress ports, skipped\"",
 			"-j", "MARK", "--set-xmark", "0x10000/0x10000")
 	}
-	return
 }
 
 func (ipt *iptableBuffer) renderIngressFrom(s *Server, podInfo *controllers.PodInfo, pIndex, iIndex int, from []multiv1beta1.MultiNetworkPolicyPeer, policyNetworks []string) {
@@ -295,107 +294,16 @@ func (ipt *iptableBuffer) renderIngressFrom(s *Server, podInfo *controllers.PodI
 	s.podMap.Update(s.podChanges)
 	for _, peer := range from {
 		if peer.PodSelector != nil || peer.NamespaceSelector != nil {
-			podSelectorMap, err := metav1.LabelSelectorAsMap(peer.PodSelector)
-			if err != nil {
-				klog.Errorf("pod selector: %v", err)
-				continue
-			}
-			podLabelSelector := labels.Set(podSelectorMap).AsSelectorPreValidated()
-			pods, err := s.podLister.Pods(metav1.NamespaceAll).List(podLabelSelector)
-			if err != nil {
-				klog.Errorf("pod list failed:%v", err)
-				continue
-			}
-
-			var nsSelector labels.Selector
-			if peer.NamespaceSelector != nil {
-				nsSelectorMap, err := metav1.LabelSelectorAsMap(peer.NamespaceSelector)
-				if err != nil {
-					klog.Errorf("namespace selector: %v", err)
-					continue
-				}
-				nsSelector = labels.Set(nsSelectorMap).AsSelectorPreValidated()
-			}
-			s.namespaceMap.Update(s.nsChanges)
-
-			for _, sPod := range pods {
-				nsLabels, err := s.namespaceMap.GetNamespaceInfo(sPod.Namespace)
-				if err != nil {
-					klog.Errorf("cannot get namespace info: %v %v", sPod.ObjectMeta.Name, err)
-					continue
-				}
-				if nsSelector != nil && !nsSelector.Matches(labels.Set(nsLabels.Labels)) {
-					continue
-				}
-				s.podMap.Update(s.podChanges)
-				sPodinfo, err := s.podMap.GetPodInfo(sPod)
-				if err != nil {
-					klog.Errorf("cannot get %s/%s podInfo: %v", sPod.Namespace, sPod.Name, err)
-					continue
-				}
-				for _, podIntf := range podInfo.Interfaces {
-					if !podIntf.CheckPolicyNetwork(policyNetworks) {
-						continue
-					}
-					for _, sPodIntf := range sPodinfo.Interfaces {
-						if !sPodIntf.CheckPolicyNetwork(policyNetworks) {
-							continue
-						}
-						for _, ip := range sPodIntf.IPs {
-							if ipt.isIPFamilyCompatible(ip) {
-								writeLine(ipt.ingressFrom, "-A", chainName,
-									"-i", podIntf.InterfaceName, "-s", ip,
-									"-j", "MARK", "--set-xmark", "0x20000/0x20000")
-							}
-						}
-						// ingress should accept reverse path
-						for _, ip := range podIntf.IPs {
-							if ipt.isIPFamilyCompatible(ip) {
-								writeLine(ipt.ingressFrom, "-A", chainName,
-									"-i", podIntf.InterfaceName, "-s", ip,
-									"-j", "MARK", "--set-xmark", "0x20000/0x20000")
-							}
-						}
-					}
-				}
-			}
-		} else if peer.IPBlock != nil {
-			for _, except := range peer.IPBlock.Except {
-				for _, podIntf := range podInfo.Interfaces {
-					if !podIntf.CheckPolicyNetwork(policyNetworks) {
-						continue
-					}
-					if ipt.isIPFamilyCompatible(except) {
-						writeLine(ipt.ingressFrom, "-A", chainName,
-							"-i", podIntf.InterfaceName, "-s", except, "-j", "DROP")
-					}
-				}
-			}
-			for _, podIntf := range podInfo.Interfaces {
-				if !podIntf.CheckPolicyNetwork(policyNetworks) {
-					continue
-				}
-				if ipt.isIPFamilyCompatible(peer.IPBlock.CIDR) {
-					writeLine(ipt.ingressFrom, "-A", chainName,
-						"-i", podIntf.InterfaceName, "-s", peer.IPBlock.CIDR,
-						"-j", "MARK", "--set-xmark", "0x20000/0x20000")
-				}
-			}
-			for _, podIntf := range podInfo.Interfaces {
-				if !podIntf.CheckPolicyNetwork(policyNetworks) {
-					continue
-				}
-				for _, ip := range podIntf.IPs {
-					if ipt.isIPFamilyCompatible(ip) {
-						writeLine(ipt.ingressFrom, "-A", chainName,
-							"-i", podIntf.InterfaceName, "-s", ip,
-							"-j", "MARK", "--set-xmark", "0x20000/0x20000")
-					}
-				}
-			}
-		} else {
-			klog.Errorf("unknown rule")
+			ipt.renderIngressFromSelector(s, podInfo, chainName, peer, policyNetworks)
+			continue
 		}
+
+		if peer.IPBlock != nil {
+			ipt.renderIngressFromIPBlock(podInfo, chainName, peer, policyNetworks)
+			continue
+		}
+
+		klog.Errorf("unknown rule: %+v", peer)
 	}
 
 	// Add skip rule if no froms
@@ -404,7 +312,109 @@ func (ipt *iptableBuffer) renderIngressFrom(s *Server, podInfo *controllers.PodI
 			"-m", "comment", "--comment", "\"no ingress from, skipped\"",
 			"-j", "MARK", "--set-xmark", "0x20000/0x20000")
 	}
-	return
+}
+
+func (ipt *iptableBuffer) renderIngressFromSelector(s *Server, podInfo *controllers.PodInfo, chainName string, peer multiv1beta1.MultiNetworkPolicyPeer, policyNetworks []string) {
+	podSelectorMap, err := metav1.LabelSelectorAsMap(peer.PodSelector)
+	if err != nil {
+		klog.Errorf("pod selector: %v", err)
+		return
+	}
+	podLabelSelector := labels.Set(podSelectorMap).AsSelectorPreValidated()
+	pods, err := s.podLister.Pods(metav1.NamespaceAll).List(podLabelSelector)
+	if err != nil {
+		klog.Errorf("pod list failed:%v", err)
+		return
+	}
+
+	var nsSelector labels.Selector
+	if peer.NamespaceSelector != nil {
+		nsSelectorMap, err := metav1.LabelSelectorAsMap(peer.NamespaceSelector)
+		if err != nil {
+			klog.Errorf("namespace selector: %v", err)
+			return
+		}
+		nsSelector = labels.Set(nsSelectorMap).AsSelectorPreValidated()
+	}
+	s.namespaceMap.Update(s.nsChanges)
+
+	for _, sPod := range pods {
+		nsLabels, err := s.namespaceMap.GetNamespaceInfo(sPod.Namespace)
+		if err != nil {
+			klog.Errorf("cannot get namespace info: %v %v", sPod.ObjectMeta.Name, err)
+			continue
+		}
+		if nsSelector != nil && !nsSelector.Matches(labels.Set(nsLabels.Labels)) {
+			continue
+		}
+		s.podMap.Update(s.podChanges)
+		sPodinfo, err := s.podMap.GetPodInfo(sPod)
+		if err != nil {
+			klog.Errorf("cannot get %s/%s podInfo: %v", sPod.Namespace, sPod.Name, err)
+			continue
+		}
+		for _, podIntf := range podInfo.Interfaces {
+			if !podIntf.CheckPolicyNetwork(policyNetworks) {
+				continue
+			}
+			for _, sPodIntf := range sPodinfo.Interfaces {
+				if !sPodIntf.CheckPolicyNetwork(policyNetworks) {
+					continue
+				}
+				for _, ip := range sPodIntf.IPs {
+					if ipt.isIPFamilyCompatible(ip) {
+						writeLine(ipt.ingressFrom, "-A", chainName,
+							"-i", podIntf.InterfaceName, "-s", ip,
+							"-j", "MARK", "--set-xmark", "0x20000/0x20000")
+					}
+				}
+				// ingress should accept reverse path
+				for _, ip := range podIntf.IPs {
+					if ipt.isIPFamilyCompatible(ip) {
+						writeLine(ipt.ingressFrom, "-A", chainName,
+							"-i", podIntf.InterfaceName, "-s", ip,
+							"-j", "MARK", "--set-xmark", "0x20000/0x20000")
+					}
+				}
+			}
+		}
+	}
+}
+
+func (ipt *iptableBuffer) renderIngressFromIPBlock(podInfo *controllers.PodInfo, chainName string, peer multiv1beta1.MultiNetworkPolicyPeer, policyNetworks []string) {
+	for _, except := range peer.IPBlock.Except {
+		for _, podIntf := range podInfo.Interfaces {
+			if !podIntf.CheckPolicyNetwork(policyNetworks) {
+				continue
+			}
+			if ipt.isIPFamilyCompatible(except) {
+				writeLine(ipt.ingressFrom, "-A", chainName,
+					"-i", podIntf.InterfaceName, "-s", except, "-j", "DROP")
+			}
+		}
+	}
+	for _, podIntf := range podInfo.Interfaces {
+		if !podIntf.CheckPolicyNetwork(policyNetworks) {
+			continue
+		}
+		if ipt.isIPFamilyCompatible(peer.IPBlock.CIDR) {
+			writeLine(ipt.ingressFrom, "-A", chainName,
+				"-i", podIntf.InterfaceName, "-s", peer.IPBlock.CIDR,
+				"-j", "MARK", "--set-xmark", "0x20000/0x20000")
+		}
+	}
+	for _, podIntf := range podInfo.Interfaces {
+		if !podIntf.CheckPolicyNetwork(policyNetworks) {
+			continue
+		}
+		for _, ip := range podIntf.IPs {
+			if ipt.isIPFamilyCompatible(ip) {
+				writeLine(ipt.ingressFrom, "-A", chainName,
+					"-i", podIntf.InterfaceName, "-s", ip,
+					"-j", "MARK", "--set-xmark", "0x20000/0x20000")
+			}
+		}
+	}
 }
 
 func (ipt *iptableBuffer) renderEgressCommon(s *Server) {
@@ -516,7 +526,6 @@ func (ipt *iptableBuffer) renderEgressPorts(_ *Server, podInfo *controllers.PodI
 			"-m", "comment", "--comment", "\"no egress ports, skipped\"",
 			"-j", "MARK", "--set-xmark", "0x10000/0x10000")
 	}
-	return
 }
 
 func (ipt *iptableBuffer) renderEgressTo(s *Server, podInfo *controllers.PodInfo, pIndex, iIndex int, to []multiv1beta1.MultiNetworkPolicyPeer, policyNetworks []string) {
@@ -529,109 +538,16 @@ func (ipt *iptableBuffer) renderEgressTo(s *Server, podInfo *controllers.PodInfo
 	s.podMap.Update(s.podChanges)
 	for _, peer := range to {
 		if peer.PodSelector != nil || peer.NamespaceSelector != nil {
-			podSelectorMap, err := metav1.LabelSelectorAsMap(peer.PodSelector)
-			if err != nil {
-				klog.Errorf("pod selector: %v", err)
-				continue
-			}
-			podLabelSelector := labels.Set(podSelectorMap).AsSelectorPreValidated()
-			pods, err := s.podLister.Pods(metav1.NamespaceAll).List(podLabelSelector)
-			if err != nil {
-				klog.Errorf("pod list failed:%v", err)
-				continue
-			}
-
-			var nsSelector labels.Selector
-			if peer.NamespaceSelector != nil {
-				nsSelectorMap, err := metav1.LabelSelectorAsMap(peer.NamespaceSelector)
-				if err != nil {
-					klog.Errorf("namespace selector: %v", err)
-					continue
-				}
-				nsSelector = labels.Set(nsSelectorMap).AsSelectorPreValidated()
-			}
-			s.namespaceMap.Update(s.nsChanges)
-			s.podMap.Update(s.podChanges)
-
-			for _, sPod := range pods {
-				nsLabels, err := s.namespaceMap.GetNamespaceInfo(sPod.Namespace)
-				if err != nil {
-					klog.Errorf("cannot get namespace info: %v", err)
-					continue
-				}
-				if nsSelector != nil && !nsSelector.Matches(labels.Set(nsLabels.Labels)) {
-					continue
-				}
-				s.podMap.Update(s.podChanges)
-				sPodinfo, err := s.podMap.GetPodInfo(sPod)
-				if err != nil {
-					klog.Errorf("cannot get %s/%s podInfo: %v", sPod.Namespace, sPod.Name, err)
-					continue
-				}
-				for _, podIntf := range podInfo.Interfaces {
-					if !podIntf.CheckPolicyNetwork(policyNetworks) {
-						continue
-					}
-					for _, sPodIntf := range sPodinfo.Interfaces {
-						if !sPodIntf.CheckPolicyNetwork(policyNetworks) {
-							continue
-						}
-						for _, ip := range sPodIntf.IPs {
-							if ipt.isIPFamilyCompatible(ip) {
-								writeLine(ipt.egressTo, "-A", chainName,
-									"-o", podIntf.InterfaceName, "-d", ip,
-									"-j", "MARK", "--set-xmark", "0x20000/0x20000")
-							}
-						}
-						// egress should accept reverse path
-						for _, ip := range podIntf.IPs {
-							if ipt.isIPFamilyCompatible(ip) {
-								writeLine(ipt.egressTo, "-A", chainName,
-									"-o", podIntf.InterfaceName, "-d", ip,
-									"-j", "MARK", "--set-xmark", "0x20000/0x20000")
-							}
-						}
-					}
-				}
-			}
-		} else if peer.IPBlock != nil {
-			for _, except := range peer.IPBlock.Except {
-				for _, multi := range podInfo.Interfaces {
-					if !multi.CheckPolicyNetwork(policyNetworks) {
-						continue
-					}
-					if ipt.isIPFamilyCompatible(except) {
-						writeLine(ipt.egressTo, "-A", chainName,
-							"-o", multi.InterfaceName, "-d", except, "-j", "DROP")
-					}
-				}
-			}
-			for _, podIntf := range podInfo.Interfaces {
-				if !podIntf.CheckPolicyNetwork(policyNetworks) {
-					continue
-				}
-				if ipt.isIPFamilyCompatible(peer.IPBlock.CIDR) {
-					writeLine(ipt.egressTo, "-A", chainName,
-						"-o", podIntf.InterfaceName, "-d", peer.IPBlock.CIDR,
-						"-j", "MARK", "--set-xmark", "0x20000/0x20000")
-				}
-			}
-			// egress should accept reverse path
-			for _, podIntf := range podInfo.Interfaces {
-				if !podIntf.CheckPolicyNetwork(policyNetworks) {
-					continue
-				}
-				for _, ip := range podIntf.IPs {
-					if ipt.isIPFamilyCompatible(ip) {
-						writeLine(ipt.egressTo, "-A", chainName,
-							"-o", podIntf.InterfaceName, "-d", ip,
-							"-j", "MARK", "--set-xmark", "0x20000/0x20000")
-					}
-				}
-			}
-		} else {
-			klog.Errorf("unknown rule")
+			ipt.renderEgressToSelector(s, podInfo, chainName, peer, policyNetworks)
+			continue
 		}
+
+		if peer.IPBlock != nil {
+			ipt.renderEgressToIPBlock(podInfo, chainName, peer, policyNetworks)
+			continue
+		}
+
+		klog.Errorf("unknown rule: %+v", peer)
 	}
 
 	// Add skip rules if no to
@@ -640,7 +556,111 @@ func (ipt *iptableBuffer) renderEgressTo(s *Server, podInfo *controllers.PodInfo
 			"-m", "comment", "--comment", "\"no egress to, skipped\"",
 			"-j", "MARK", "--set-xmark", "0x20000/0x20000")
 	}
-	return
+}
+
+func (ipt *iptableBuffer) renderEgressToSelector(s *Server, podInfo *controllers.PodInfo, chainName string, peer multiv1beta1.MultiNetworkPolicyPeer, policyNetworks []string) {
+	podSelectorMap, err := metav1.LabelSelectorAsMap(peer.PodSelector)
+	if err != nil {
+		klog.Errorf("pod selector: %v", err)
+		return
+	}
+	podLabelSelector := labels.Set(podSelectorMap).AsSelectorPreValidated()
+	pods, err := s.podLister.Pods(metav1.NamespaceAll).List(podLabelSelector)
+	if err != nil {
+		klog.Errorf("pod list failed:%v", err)
+		return
+	}
+
+	var nsSelector labels.Selector
+	if peer.NamespaceSelector != nil {
+		nsSelectorMap, err := metav1.LabelSelectorAsMap(peer.NamespaceSelector)
+		if err != nil {
+			klog.Errorf("namespace selector: %v", err)
+			return
+		}
+		nsSelector = labels.Set(nsSelectorMap).AsSelectorPreValidated()
+	}
+	s.namespaceMap.Update(s.nsChanges)
+	s.podMap.Update(s.podChanges)
+
+	for _, sPod := range pods {
+		nsLabels, err := s.namespaceMap.GetNamespaceInfo(sPod.Namespace)
+		if err != nil {
+			klog.Errorf("cannot get namespace info: %v", err)
+			continue
+		}
+		if nsSelector != nil && !nsSelector.Matches(labels.Set(nsLabels.Labels)) {
+			continue
+		}
+		s.podMap.Update(s.podChanges)
+		sPodinfo, err := s.podMap.GetPodInfo(sPod)
+		if err != nil {
+			klog.Errorf("cannot get %s/%s podInfo: %v", sPod.Namespace, sPod.Name, err)
+			continue
+		}
+		for _, podIntf := range podInfo.Interfaces {
+			if !podIntf.CheckPolicyNetwork(policyNetworks) {
+				continue
+			}
+			for _, sPodIntf := range sPodinfo.Interfaces {
+				if !sPodIntf.CheckPolicyNetwork(policyNetworks) {
+					continue
+				}
+				for _, ip := range sPodIntf.IPs {
+					if ipt.isIPFamilyCompatible(ip) {
+						writeLine(ipt.egressTo, "-A", chainName,
+							"-o", podIntf.InterfaceName, "-d", ip,
+							"-j", "MARK", "--set-xmark", "0x20000/0x20000")
+					}
+				}
+				// egress should accept reverse path
+				for _, ip := range podIntf.IPs {
+					if ipt.isIPFamilyCompatible(ip) {
+						writeLine(ipt.egressTo, "-A", chainName,
+							"-o", podIntf.InterfaceName, "-d", ip,
+							"-j", "MARK", "--set-xmark", "0x20000/0x20000")
+					}
+				}
+			}
+		}
+	}
+}
+
+func (ipt *iptableBuffer) renderEgressToIPBlock(podInfo *controllers.PodInfo, chainName string, peer multiv1beta1.MultiNetworkPolicyPeer, policyNetworks []string) {
+	for _, except := range peer.IPBlock.Except {
+		for _, multi := range podInfo.Interfaces {
+			if !multi.CheckPolicyNetwork(policyNetworks) {
+				continue
+			}
+			if ipt.isIPFamilyCompatible(except) {
+				writeLine(ipt.egressTo, "-A", chainName,
+					"-o", multi.InterfaceName, "-d", except, "-j", "DROP")
+			}
+		}
+	}
+	for _, podIntf := range podInfo.Interfaces {
+		if !podIntf.CheckPolicyNetwork(policyNetworks) {
+			continue
+		}
+		if ipt.isIPFamilyCompatible(peer.IPBlock.CIDR) {
+			writeLine(ipt.egressTo, "-A", chainName,
+				"-o", podIntf.InterfaceName, "-d", peer.IPBlock.CIDR,
+				"-j", "MARK", "--set-xmark", "0x20000/0x20000")
+		}
+	}
+	// egress should accept reverse path
+	for _, podIntf := range podInfo.Interfaces {
+		if !podIntf.CheckPolicyNetwork(policyNetworks) {
+			continue
+		}
+		for _, ip := range podIntf.IPs {
+			if ipt.isIPFamilyCompatible(ip) {
+				writeLine(ipt.egressTo, "-A", chainName,
+					"-o", podIntf.InterfaceName, "-d", ip,
+					"-j", "MARK", "--set-xmark", "0x20000/0x20000")
+			}
+		}
+	}
 }
 
 func (ipt *iptableBuffer) isIPFamilyCompatible(ip string) bool {
