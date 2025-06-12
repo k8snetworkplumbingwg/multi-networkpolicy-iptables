@@ -293,13 +293,13 @@ func (ipt *iptableBuffer) renderIngressFrom(s *Server, podInfo *controllers.PodI
 
 	s.podMap.Update(s.podChanges)
 	for _, peer := range from {
-		if peer.PodSelector != nil || peer.NamespaceSelector != nil {
-			ipt.renderIngressFromSelector(s, podInfo, chainName, peer, policyNetworks)
+		if peer.IPBlock != nil {
+			ipt.renderIngressFromIPBlock(podInfo, chainName, peer, policyNetworks)
 			continue
 		}
 
-		if peer.IPBlock != nil {
-			ipt.renderIngressFromIPBlock(podInfo, chainName, peer, policyNetworks)
+		if peer.PodSelector != nil || peer.NamespaceSelector != nil {
+			ipt.renderIngressFromSelector(s, podInfo, chainName, peer, policyNetworks)
 			continue
 		}
 
@@ -537,13 +537,13 @@ func (ipt *iptableBuffer) renderEgressTo(s *Server, podInfo *controllers.PodInfo
 
 	s.podMap.Update(s.podChanges)
 	for _, peer := range to {
-		if peer.PodSelector != nil || peer.NamespaceSelector != nil {
-			ipt.renderEgressToSelector(s, podInfo, chainName, peer, policyNetworks)
+		if peer.IPBlock != nil {
+			ipt.renderEgressToIPBlock(podInfo, chainName, peer, policyNetworks)
 			continue
 		}
 
-		if peer.IPBlock != nil {
-			ipt.renderEgressToIPBlock(podInfo, chainName, peer, policyNetworks)
+		if peer.PodSelector != nil || peer.NamespaceSelector != nil {
+			ipt.renderEgressToSelector(s, podInfo, chainName, peer, policyNetworks)
 			continue
 		}
 
