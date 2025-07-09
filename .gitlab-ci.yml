@@ -1,0 +1,15 @@
+include:
+- project: "cit/t-caas/ci/pipelines"
+  ref: "${SHARED_PIPELINE_VERSION}"
+  file:
+  - 'execution/container/image.yaml'
+
+variables:
+  CONTAINER_IMAGE_DOCKERFILE: 'Dockerfile'
+  CONTAINER_IMAGE_NAME: 'multi-networkpolicy-iptables'
+  CONTAINER_IMAGE_CONTEXT: '${CI_PROJECT_DIR}'
+
+image-push:
+  tags:
+  - aws_run_k8s_intel_m
+
