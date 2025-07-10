@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -397,6 +398,11 @@ func (pct *PodChangeTracker) newPodInfo(pod *v1.Pod) (*PodInfo, error) {
 	} else {
 		klog.V(1).Infof("Pod:%s/%s %s/%s, not ready", pod.Namespace, pod.Name, pct.hostname, pod.Spec.NodeName)
 	}
+
+	slices.SortFunc(netifs, func(a, b InterfaceInfo) int {
+		return strings.Compare(a.InterfaceName, b.InterfaceName)
+	})
+
 	info := &PodInfo{
 		Name:          pod.ObjectMeta.Name,
 		Namespace:     pod.ObjectMeta.Namespace,
