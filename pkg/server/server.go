@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -96,6 +97,11 @@ type Server struct {
 
 	syncRunner       *async.BoundedFrequencyRunner
 	syncRunnerStopCh chan struct{}
+}
+
+type internalPolicy struct {
+	policy         *multiv1beta1.MultiNetworkPolicy
+	policyNetworks []string
 }
 
 // RunPodConfig ...
@@ -583,9 +589,9 @@ func (s *Server) generatePolicyRulesForPodAndFamily(pod *v1.Pod, podInfo *contro
 	iptableBuffer.Init(iptables)
 	iptableBuffer.Reset()
 
-	idx := 0
-	ingressRendered := 0
-	egressRendered := 0
+	var ingressPolicies []internalPolicy
+	var egressPolicies []internalPolicy
+
 	for _, p := range s.policyMap {
 		policy := p.Policy
 		if policy.GetNamespace() != pod.Namespace {
@@ -618,25 +624,45 @@ func (s *Server) generatePolicyRulesForPodAndFamily(pod *v1.Pod, podInfo *contro
 				policyNetworks[pidx] = fmt.Sprintf("%s/%s", policy.GetNamespace(), networkName)
 			}
 		}
+		slices.Sort(policyNetworks)
 
 		if podInfo.CheckPolicyNetwork(policyNetworks) {
 			if ingressEnable {
-				iptableBuffer.renderIngressCommon(s)
-				iptableBuffer.renderIngress(s, podInfo, idx, policy, policyNetworks)
-				ingressRendered++
+				ingressPolicies = append(ingressPolicies, internalPolicy{
+					policy:         policy,
+					policyNetworks: policyNetworks,
+				})
 			}
 			if egressEnable {
-				iptableBuffer.renderEgressCommon(s)
-				iptableBuffer.renderEgress(s, podInfo, idx, policy, policyNetworks)
-				egressRendered++
+				egressPolicies = append(egressPolicies, internalPolicy{
+					policy:         policy,
+					policyNetworks: policyNetworks,
+				})
 			}
-			idx++
 		}
 	}
-	if ingressRendered != 0 {
+
+	// Stable sort by policy name
+	slices.SortFunc(ingressPolicies, func(a, b internalPolicy) int {
+		return strings.Compare(fmt.Sprintf("%s/%s", a.policy.GetNamespace(), a.policy.GetName()), fmt.Sprintf("%s/%s", b.policy.GetNamespace(), b.policy.GetName()))
+	})
+	slices.SortFunc(egressPolicies, func(a, b internalPolicy) int {
+		return strings.Compare(fmt.Sprintf("%s/%s", a.policy.GetNamespace(), a.policy.GetName()), fmt.Sprintf("%s/%s", b.policy.GetNamespace(), b.policy.GetName()))
+	})
+
+	if len(ingressPolicies) > 0 {
+		iptableBuffer.renderIngressCommon(s)
+		for idx, policy := range ingressPolicies {
+			iptableBuffer.renderIngress(s, podInfo, idx, policy.policy, policy.policyNetworks)
+		}
 		writeLine(iptableBuffer.policyIndex, "-A", "MULTI-INGRESS", "-j", "DROP")
 	}
-	if egressRendered != 0 {
+
+	if len(egressPolicies) > 0 {
+		iptableBuffer.renderEgressCommon(s)
+		for idx, policy := range egressPolicies {
+			iptableBuffer.renderEgress(s, podInfo, idx, policy.policy, policy.policyNetworks)
+		}
 		writeLine(iptableBuffer.policyIndex, "-A", "MULTI-EGRESS", "-j", "DROP")
 	}
 
