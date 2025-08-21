@@ -295,9 +295,61 @@ func (ipt *iptableBuffer) renderIngressFrom(s *Server, podInfo *controllers.PodI
 	s.podMap.Update(s.podChanges)
 	for _, peer := range from {
 		if peer.PodSelector != nil || peer.NamespaceSelector != nil {
-			podSelectorMap, err := metav1.LabelSelectorAsMap(peer.PodSelector)
-			if err != nil {
-				klog.Errorf("pod selector: %v", err)
+			ipt.renderIngressFromSelector(s, podInfo, chainName, peer, policyNetworks)
+			continue
+		}
+
+		klog.Errorf("unknown rule: %+v", peer)
+	}
+
+	// Add skip rule if no froms
+	if len(from) == 0 {
+		writeLine(ipt.ingressFrom, "-A", chainName,
+			"-m", "comment", "--comment", "\"no ingress from, skipped\"",
+			"-j", "MARK", "--set-xmark", "0x20000/0x20000")
+	}
+}
+
+func (ipt *iptableBuffer) renderIngressFromSelector(s *Server, podInfo *controllers.PodInfo, chainName string, peer multiv1beta1.MultiNetworkPolicyPeer, policyNetworks []string) {
+	podSelector, err := metav1.LabelSelectorAsSelector(peer.PodSelector)
+	if err != nil {
+		klog.Errorf("pod selector: %v", err)
+		return
+	}
+	pods, err := s.podLister.Pods(metav1.NamespaceAll).List(podSelector)
+	if err != nil {
+		klog.Errorf("pod list failed:%v", err)
+		return
+	}
+
+	var nsSelector labels.Selector
+	if peer.NamespaceSelector != nil {
+		var err error
+		nsSelector, err = metav1.LabelSelectorAsSelector(peer.NamespaceSelector)
+		if err != nil {
+			klog.Errorf("namespace selector: %v", err)
+			return
+		}
+	}
+	s.namespaceMap.Update(s.nsChanges)
+
+	for _, sPod := range pods {
+		nsLabels, err := s.namespaceMap.GetNamespaceInfo(sPod.Namespace)
+		if err != nil {
+			klog.Errorf("cannot get namespace info: %v %v", sPod.ObjectMeta.Name, err)
+			continue
+		}
+		if nsSelector != nil && !nsSelector.Matches(labels.Set(nsLabels.Labels)) {
+			continue
+		}
+		s.podMap.Update(s.podChanges)
+		sPodinfo, err := s.podMap.GetPodInfo(sPod)
+		if err != nil {
+			klog.Errorf("cannot get %s/%s podInfo: %v", sPod.Namespace, sPod.Name, err)
+			continue
+		}
+		for _, podIntf := range podInfo.Interfaces {
+			if !podIntf.CheckPolicyNetwork(policyNetworks) {
 				continue
 			}
 			podLabelSelector := labels.Set(podSelectorMap).AsSelectorPreValidated()
@@ -529,9 +581,62 @@ func (ipt *iptableBuffer) renderEgressTo(s *Server, podInfo *controllers.PodInfo
 	s.podMap.Update(s.podChanges)
 	for _, peer := range to {
 		if peer.PodSelector != nil || peer.NamespaceSelector != nil {
-			podSelectorMap, err := metav1.LabelSelectorAsMap(peer.PodSelector)
-			if err != nil {
-				klog.Errorf("pod selector: %v", err)
+			ipt.renderEgressToSelector(s, podInfo, chainName, peer, policyNetworks)
+			continue
+		}
+
+		klog.Errorf("unknown rule: %+v", peer)
+	}
+
+	// Add skip rules if no to
+	if len(to) == 0 {
+		writeLine(ipt.egressTo, "-A", chainName,
+			"-m", "comment", "--comment", "\"no egress to, skipped\"",
+			"-j", "MARK", "--set-xmark", "0x20000/0x20000")
+	}
+}
+
+func (ipt *iptableBuffer) renderEgressToSelector(s *Server, podInfo *controllers.PodInfo, chainName string, peer multiv1beta1.MultiNetworkPolicyPeer, policyNetworks []string) {
+	podSelector, err := metav1.LabelSelectorAsSelector(peer.PodSelector)
+	if err != nil {
+		klog.Errorf("pod selector: %v", err)
+		return
+	}
+	pods, err := s.podLister.Pods(metav1.NamespaceAll).List(podSelector)
+	if err != nil {
+		klog.Errorf("pod list failed:%v", err)
+		return
+	}
+
+	var nsSelector labels.Selector
+	if peer.NamespaceSelector != nil {
+		var err error
+		nsSelector, err = metav1.LabelSelectorAsSelector(peer.NamespaceSelector)
+		if err != nil {
+			klog.Errorf("namespace selector: %v", err)
+			return
+		}
+	}
+	s.namespaceMap.Update(s.nsChanges)
+	s.podMap.Update(s.podChanges)
+
+	for _, sPod := range pods {
+		nsLabels, err := s.namespaceMap.GetNamespaceInfo(sPod.Namespace)
+		if err != nil {
+			klog.Errorf("cannot get namespace info: %v", err)
+			continue
+		}
+		if nsSelector != nil && !nsSelector.Matches(labels.Set(nsLabels.Labels)) {
+			continue
+		}
+		s.podMap.Update(s.podChanges)
+		sPodinfo, err := s.podMap.GetPodInfo(sPod)
+		if err != nil {
+			klog.Errorf("cannot get %s/%s podInfo: %v", sPod.Namespace, sPod.Name, err)
+			continue
+		}
+		for _, podIntf := range podInfo.Interfaces {
+			if !podIntf.CheckPolicyNetwork(policyNetworks) {
 				continue
 			}
 			podLabelSelector := labels.Set(podSelectorMap).AsSelectorPreValidated()
