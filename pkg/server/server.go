@@ -598,12 +598,11 @@ func (s *Server) generatePolicyRulesForPodAndFamily(pod *v1.Pod, podInfo *contro
 			continue
 		}
 		if policy.Spec.PodSelector.Size() != 0 {
-			policyMap, err := metav1.LabelSelectorAsMap(&policy.Spec.PodSelector)
+			policyPodSelector, err := metav1.LabelSelectorAsSelector(&policy.Spec.PodSelector)
 			if err != nil {
 				klog.Errorf("bad label selector for policy [%s]: %v", policyNamespacedName(policy), err)
 				continue
 			}
-			policyPodSelector := labels.Set(policyMap).AsSelectorPreValidated()
 			if !policyPodSelector.Matches(labels.Set(pod.Labels)) {
 				continue
 			}

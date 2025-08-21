@@ -315,13 +315,12 @@ func (ipt *iptableBuffer) renderIngressFrom(s *Server, podInfo *controllers.PodI
 }
 
 func (ipt *iptableBuffer) renderIngressFromSelector(s *Server, podInfo *controllers.PodInfo, chainName string, peer multiv1beta1.MultiNetworkPolicyPeer, policyNetworks []string) {
-	podSelectorMap, err := metav1.LabelSelectorAsMap(peer.PodSelector)
+	podSelector, err := metav1.LabelSelectorAsSelector(peer.PodSelector)
 	if err != nil {
 		klog.Errorf("pod selector: %v", err)
 		return
 	}
-	podLabelSelector := labels.Set(podSelectorMap).AsSelectorPreValidated()
-	pods, err := s.podLister.Pods(metav1.NamespaceAll).List(podLabelSelector)
+	pods, err := s.podLister.Pods(metav1.NamespaceAll).List(podSelector)
 	if err != nil {
 		klog.Errorf("pod list failed:%v", err)
 		return
@@ -329,12 +328,12 @@ func (ipt *iptableBuffer) renderIngressFromSelector(s *Server, podInfo *controll
 
 	var nsSelector labels.Selector
 	if peer.NamespaceSelector != nil {
-		nsSelectorMap, err := metav1.LabelSelectorAsMap(peer.NamespaceSelector)
+		var err error
+		nsSelector, err = metav1.LabelSelectorAsSelector(peer.NamespaceSelector)
 		if err != nil {
 			klog.Errorf("namespace selector: %v", err)
 			return
 		}
-		nsSelector = labels.Set(nsSelectorMap).AsSelectorPreValidated()
 	}
 	s.namespaceMap.Update(s.nsChanges)
 
@@ -559,13 +558,12 @@ func (ipt *iptableBuffer) renderEgressTo(s *Server, podInfo *controllers.PodInfo
 }
 
 func (ipt *iptableBuffer) renderEgressToSelector(s *Server, podInfo *controllers.PodInfo, chainName string, peer multiv1beta1.MultiNetworkPolicyPeer, policyNetworks []string) {
-	podSelectorMap, err := metav1.LabelSelectorAsMap(peer.PodSelector)
+	podSelector, err := metav1.LabelSelectorAsSelector(peer.PodSelector)
 	if err != nil {
 		klog.Errorf("pod selector: %v", err)
 		return
 	}
-	podLabelSelector := labels.Set(podSelectorMap).AsSelectorPreValidated()
-	pods, err := s.podLister.Pods(metav1.NamespaceAll).List(podLabelSelector)
+	pods, err := s.podLister.Pods(metav1.NamespaceAll).List(podSelector)
 	if err != nil {
 		klog.Errorf("pod list failed:%v", err)
 		return
@@ -573,12 +571,12 @@ func (ipt *iptableBuffer) renderEgressToSelector(s *Server, podInfo *controllers
 
 	var nsSelector labels.Selector
 	if peer.NamespaceSelector != nil {
-		nsSelectorMap, err := metav1.LabelSelectorAsMap(peer.NamespaceSelector)
+		var err error
+		nsSelector, err = metav1.LabelSelectorAsSelector(peer.NamespaceSelector)
 		if err != nil {
 			klog.Errorf("namespace selector: %v", err)
 			return
 		}
-		nsSelector = labels.Set(nsSelectorMap).AsSelectorPreValidated()
 	}
 	s.namespaceMap.Update(s.nsChanges)
 	s.podMap.Update(s.podChanges)

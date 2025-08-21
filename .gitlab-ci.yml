@@ -12,4 +12,3 @@ variables:
 image-push:
   tags:
   - aws_run_k8s_intel_m
-
