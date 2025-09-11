@@ -16,3 +16,7 @@ gopath/
 # Test outputs
 *.out
 *.test
+
+pods.yaml
+policies.yaml
+*.nft

@@ -14,3 +14,20 @@
 
 // Package server is the package that contains server functions.
 package server
+
+const (
+	ingressChain = "multi-ingress"
+	egressChain  = "multi-egress"
+
+	// PortsChainSuffix is the suffix for the ports chains
+	portsChainSuffix = "ports"
+
+	// peersChainSuffix is the suffix for the peers chains
+	peersChainSuffix = "peers"
+
+	common                   = "common"
+	destinationAddressSuffix = "daddrs"
+	sourceAddressSuffix      = "saddrs"
+	podInterfacesName        = "pod_interfaces"
+	PolicyNetworkAnnotation  = "k8s.v1.cni.cncf.io/policy-for"
+)

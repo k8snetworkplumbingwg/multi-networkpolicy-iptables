@@ -237,6 +237,9 @@ github.com/spf13/pflag
 # github.com/vishvananda/netns v0.0.5
 ## explicit; go 1.17
 github.com/vishvananda/netns
+# go4.org/netipx v0.0.0-20231129151722-fdeea329fbba
+## explicit; go 1.18
+go4.org/netipx
 # golang.org/x/mod v0.14.0
 ## explicit; go 1.18
 golang.org/x/mod/semver
@@ -883,7 +886,6 @@ k8s.io/kubernetes/pkg/kubelet/metrics
 k8s.io/kubernetes/pkg/kubelet/util
 k8s.io/kubernetes/pkg/util/async
 k8s.io/kubernetes/pkg/util/iptables
-k8s.io/kubernetes/pkg/util/iptables/testing
 # k8s.io/utils v0.0.0-20230406110748-d93618cff8a2
 ## explicit; go 1.18
 k8s.io/utils/buffer

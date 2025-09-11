@@ -35,30 +35,22 @@ type Options struct {
 	// kubeconfig is the path to a KubeConfig file.
 	Kubeconfig string
 	// master is used to override the kubeconfig's URL to the apiserver
-	master                    string
-	hostnameOverride          string
-	hostPrefix                string
-	containerRuntime          controllers.RuntimeKind
-	containerRuntimeEndpoint  string
-	networkPlugins            []string
-	podIptables               string
-	syncPeriod                int
-	acceptICMPv6              bool
-	acceptICMP                bool
-	allowIPv6SrcPrefixText    string
-	allowIPv6DstPrefixText    string
-	customIPv4IngressRuleFile string
-	customIPv4EgressRuleFile  string
-	customIPv6IngressRuleFile string
-	customIPv6EgressRuleFile  string
+	master                   string
+	hostnameOverride         string
+	hostPrefix               string
+	containerRuntime         controllers.RuntimeKind
+	containerRuntimeEndpoint string
+	networkPlugins           []string
+	podIptables              string
+	syncPeriod               int
+	acceptICMPv6             bool
+	acceptICMP               bool
+	allowSrcPrefixText       string
+	allowDstPrefixText       string
 
 	// updated by command line parsing
-	allowIPv6SrcPrefix    []string
-	allowIPv6DstPrefix    []string
-	customIPv4IngressRule []string
-	customIPv4EgressRule  []string
-	customIPv6IngressRule []string
-	customIPv6EgressRule  []string
+	allowSrcPrefix []string
+	allowDstPrefix []string
 	// stopCh is used to stop the command
 	stopCh chan struct{}
 }
@@ -78,12 +70,8 @@ func (o *Options) AddFlags(fs *pflag.FlagSet) {
 	fs.IntVar(&o.syncPeriod, "sync-period", defaultSyncPeriod, "sync period for multi-networkpolicy syncRunner")
 	fs.BoolVar(&o.acceptICMP, "accept-icmp", false, "accept all ICMP traffic")
 	fs.BoolVar(&o.acceptICMPv6, "accept-icmpv6", false, "accept all ICMPv6 traffic")
-	fs.StringVar(&o.allowIPv6SrcPrefixText, "allow-ipv6-src-prefix", "", "Accept source IPv6 prefix list, comma separated (e.g. \"fe80::/10\")")
-	fs.StringVar(&o.allowIPv6DstPrefixText, "allow-ipv6-dst-prefix", "", "Accept destination IPv6 prefix list, comma separated (e.g. \"fe80:/10,ff00::/8\")")
-	fs.StringVar(&o.customIPv4IngressRuleFile, "custom-v4-ingress-rule-file", "", "custom rule file for IPv4 ingress")
-	fs.StringVar(&o.customIPv4EgressRuleFile, "custom-v4-egress-rule-file", "", "custom rule file for IPv4 egress")
-	fs.StringVar(&o.customIPv6IngressRuleFile, "custom-v6-ingress-rule-file", "", "custom rule file for IPv6 ingress")
-	fs.StringVar(&o.customIPv6EgressRuleFile, "custom-v6-egress-rule-file", "", "custom rule file for IPv6 egress")
+	fs.StringVar(&o.allowSrcPrefixText, "allow-src-prefix", "", "Accept source IPv6 prefix list, comma separated (e.g. \"fe80::/10\")")
+	fs.StringVar(&o.allowDstPrefixText, "allow-dst-prefix", "", "Accept destination IPv6 prefix list, comma separated (e.g. \"fe80:/10,ff00::/8\")")
 	fs.AddGoFlagSet(flag.CommandLine)
 }
 
@@ -131,33 +119,15 @@ func parseIPPrefixText(prefixText string, prefixList *[]string) error {
 func (o *Options) Validate() error {
 
 	// Validate IPv6 source prefix list
-	if err := parseIPPrefixText(o.allowIPv6SrcPrefixText, &o.allowIPv6SrcPrefix); err != nil {
+	if err := parseIPPrefixText(o.allowSrcPrefixText, &o.allowSrcPrefix); err != nil {
 		return err
 	}
 
 	// Validate IPv6 destination prefix list
-	if err := parseIPPrefixText(o.allowIPv6DstPrefixText, &o.allowIPv6DstPrefix); err != nil {
+	if err := parseIPPrefixText(o.allowDstPrefixText, &o.allowDstPrefix); err != nil {
 		return err
 	}
-
-	// Validate v4 ingress rules
-	if err := parseCustomRuleFile(o.customIPv4IngressRuleFile, &o.customIPv4IngressRule); err != nil {
-		return err
-	}
-
-	// Validate v4 engress rules
-	if err := parseCustomRuleFile(o.customIPv4EgressRuleFile, &o.customIPv4EgressRule); err != nil {
-		return err
-	}
-
-	// Validate v6 ingress rules
-	if err := parseCustomRuleFile(o.customIPv6IngressRuleFile, &o.customIPv6IngressRule); err != nil {
-		return err
-	}
-
-	// Validate v6 engress rules
-	err := parseCustomRuleFile(o.customIPv6EgressRuleFile, &o.customIPv6EgressRule)
-	return err
+	return nil
 }
 
 // Run invokes server
