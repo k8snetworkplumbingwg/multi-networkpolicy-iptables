@@ -14,11 +14,13 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
+const DEBUG = false
+
 func TestBootstrap(t *testing.T) {
 	// Open a system connection in a separate network namespace it requires root
-	c, newNS := nftest.OpenSystemConn(t, true)
+	c, newNS := nftest.OpenSystemConn(t, true, DEBUG)
 	defer c.CloseLasting()
-	defer nftest.CleanupSystemConn(t, newNS)
+	defer nftest.CleanupSystemConn(t, newNS, DEBUG)
 	c.FlushRuleset()
 	defer c.FlushRuleset()
 	podMockInfo := &controllers.PodInfo{
@@ -110,9 +112,9 @@ func TestBootstrap(t *testing.T) {
 }
 
 func TestApplyCommonChainRules(t *testing.T) {
-	c, newNS := nftest.OpenSystemConn(t, true)
+	c, newNS := nftest.OpenSystemConn(t, true, DEBUG)
 	defer c.CloseLasting()
-	defer nftest.CleanupSystemConn(t, newNS)
+	defer nftest.CleanupSystemConn(t, newNS, DEBUG)
 	c.FlushRuleset()
 	defer c.FlushRuleset()
 	podMockInfo := &controllers.PodInfo{
@@ -208,9 +210,9 @@ func TestApplyCommonChainRules(t *testing.T) {
 
 func TestApplyPodRules(t *testing.T) {
 	// TODO: still needs proper validation against the MultiNetworkPolicy CR content
-	c, newNS := nftest.OpenSystemConn(t, true)
+	c, newNS := nftest.OpenSystemConn(t, true, DEBUG)
 	defer c.CloseLasting()
-	defer nftest.CleanupSystemConn(t, newNS)
+	defer nftest.CleanupSystemConn(t, newNS, DEBUG)
 	c.FlushRuleset()
 	defer c.FlushRuleset()
 	podMockInfo := &controllers.PodInfo{

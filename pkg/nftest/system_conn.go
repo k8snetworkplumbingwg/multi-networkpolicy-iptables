@@ -14,7 +14,7 @@ const netNsName = "testing"
 // the running kernel in a separate network namespace.
 // nftest.CleanupSystemConn() must be called from a defer to cleanup
 // created network namespace.
-func OpenSystemConn(t *testing.T, enableSysTests bool) (*nftables.Conn, netns.NsHandle) {
+func OpenSystemConn(t *testing.T, enableSysTests, debug bool) (*nftables.Conn, netns.NsHandle) {
 	t.Helper()
 	if !enableSysTests {
 		t.SkipNow()
@@ -23,16 +23,26 @@ func OpenSystemConn(t *testing.T, enableSysTests bool) (*nftables.Conn, netns.Ns
 	// such as those invoked by `netns.New()` are thread-local. This is undone
 	// in nftest.CleanupSystemConn().
 	runtime.LockOSThread()
-	ns, err := netns.GetFromName(netNsName)
-	if err == nil {
-		t.Logf("Reused netns %q %d, %s", netNsName, ns, ns.UniqueId())
+	var ns netns.NsHandle
+	var err error
+	if debug {
+		ns, err = netns.GetFromName(netNsName)
+		if err == nil {
+			t.Logf("Reused netns %q %d, %s", netNsName, ns, ns.UniqueId())
+		} else {
+			ns, err = netns.NewNamed(netNsName)
+			t.Logf("Created new netns %q %d, %s", netNsName, ns, ns.UniqueId())
+			if err != nil {
+				t.Fatalf("netns.NewNamed(%q) failed: %v", netNsName, err)
+			}
+		}
 	} else {
-		ns, err = netns.NewNamed(netNsName)
-		t.Logf("Created new netns %q %d, %s", netNsName, ns, ns.UniqueId())
+		ns, err = netns.New()
 		if err != nil {
-			t.Fatalf("netns.NewNamed(%q) failed: %v", netNsName, err)
+			t.Fatalf("netns.New() failed: %v", err)
 		}
 	}
+
 	c, err := nftables.New(nftables.WithNetNSFd(int(ns)), nftables.AsLasting())
 	if err != nil {
 		t.Fatalf("nftables.New() failed: %v", err)
@@ -40,14 +50,15 @@ func OpenSystemConn(t *testing.T, enableSysTests bool) (*nftables.Conn, netns.Ns
 	return c, ns
 }
 
-func CleanupSystemConn(t *testing.T, newNS netns.NsHandle) {
+func CleanupSystemConn(t *testing.T, newNS netns.NsHandle, debug bool) {
 	defer runtime.UnlockOSThread()
 
 	if err := newNS.Close(); err != nil {
 		t.Fatalf("newNS.Close() failed: %v", err)
 	}
-	if err := netns.DeleteNamed(netNsName); err != nil {
-		t.Fatalf("netns.DeleteNamed(%q) failed: %v", netNsName, err)
+	if debug {
+		t.Logf("Preserved netns %q for debugging", netNsName)
+		return
 	}
-	t.Logf("Deleted netns %q", netNsName)
+	t.Logf("Close netns %v", newNS.UniqueId())
 }

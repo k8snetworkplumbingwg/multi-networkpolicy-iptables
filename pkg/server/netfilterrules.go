@@ -407,7 +407,6 @@ func (n *nftState) applyCommonChainRules(s *Server) error {
 		if err := n.applyCommonPrefixRules(n.commonIngressChain, s.Options.allowSrcPrefix, common); err != nil {
 			return fmt.Errorf("failed to apply common ingress rules: %v", err)
 		}
-
 	}
 
 	if len(s.Options.allowDstPrefix) != 0 {
