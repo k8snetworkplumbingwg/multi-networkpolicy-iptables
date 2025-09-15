@@ -238,7 +238,7 @@ func TestApplyPodRules(t *testing.T) {
 
 	mockPolicy := &multiv1beta1.MultiNetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "net1",
+			Name:      "policy-net-1",
 			Namespace: "default",
 		},
 		Spec: multiv1beta1.MultiNetworkPolicySpec{
@@ -295,25 +295,8 @@ func TestApplyPodRules(t *testing.T) {
 						{
 							Protocol: &protocolTCP,
 							Port:     &eighty,
-							EndPort:  &ninety,
-						},
-						{
-							Protocol: &protocolUDP,
-							Port:     &fiftythree,
-						},
-						{
-							Protocol: &protocolSCTP,
-							Port:     &oneTwoThreeFour,
-							EndPort:  &twoFourSixEight,
-						},
-					},
-				},
-				{
-					Ports: []multiv1beta1.MultiNetworkPolicyPort{
-						{
-							Protocol: &protocolTCP,
-							Port:     &eighty,
-							EndPort:  &ninety,
+
+							EndPort: &ninety,
 						},
 						{
 							Protocol: &protocolUDP,
@@ -351,14 +334,14 @@ func TestApplyPodRules(t *testing.T) {
 			},
 		},
 	}
-	err = nftState.applyPodRules(mockServer, nftState.ingressChain, podMockInfo, 0, mockPolicy, []string{"net1"})
+	err = nftState.applyPodRules(mockServer, nftState.ingressChain, podMockInfo, 0, mockPolicy, []string{"net1", "net2"})
 	if err != nil {
 		t.Fatalf("applyPodRules() for ingress failed: %v", err)
 	}
 	if err := nftState.nft.Flush(); err != nil {
 		t.Fatalf("nft flush failed after applying ingress rules: %v", err)
 	}
-	err = nftState.applyPodRules(mockServer, nftState.egressChain, podMockInfo, 0, mockPolicy, []string{"net1"})
+	err = nftState.applyPodRules(mockServer, nftState.egressChain, podMockInfo, 0, mockPolicy, []string{"net1", "net2"})
 	if err != nil {
 		t.Fatalf("applyPodRules() for egress failed: %v", err)
 	}
