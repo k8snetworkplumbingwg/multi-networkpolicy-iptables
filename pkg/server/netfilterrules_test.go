@@ -207,6 +207,7 @@ func TestApplyCommonChainRules(t *testing.T) {
 }
 
 func TestApplyPodRules(t *testing.T) {
+	// TODO: still needs proper validation against the MultiNetworkPolicy CR content
 	c, newNS := nftest.OpenSystemConn(t, true)
 	defer c.CloseLasting()
 	defer nftest.CleanupSystemConn(t, newNS)
