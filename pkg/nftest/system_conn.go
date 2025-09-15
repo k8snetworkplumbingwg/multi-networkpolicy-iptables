@@ -26,7 +26,6 @@ func OpenSystemConn(t *testing.T, enableSysTests bool) (*nftables.Conn, netns.Ns
 	ns, err := netns.GetFromName(netNsName)
 	if err == nil {
 		t.Logf("Reused netns %q %d, %s", netNsName, ns, ns.UniqueId())
-		// netns.DeleteNamed(netNsName)
 	} else {
 		ns, err = netns.NewNamed(netNsName)
 		t.Logf("Created new netns %q %d, %s", netNsName, ns, ns.UniqueId())
@@ -47,7 +46,8 @@ func CleanupSystemConn(t *testing.T, newNS netns.NsHandle) {
 	if err := newNS.Close(); err != nil {
 		t.Fatalf("newNS.Close() failed: %v", err)
 	}
-	// if err := netns.DeleteNamed(netNsName); err != nil {
-	// 	t.Fatalf("netns.DeleteNamed(%q) failed: %v", netNsName, err)
-	// }
+	if err := netns.DeleteNamed(netNsName); err != nil {
+		t.Fatalf("netns.DeleteNamed(%q) failed: %v", netNsName, err)
+	}
+	t.Logf("Deleted netns %q", netNsName)
 }
