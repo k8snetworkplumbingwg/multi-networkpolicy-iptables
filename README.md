@@ -12,6 +12,9 @@ It is now actively developping hence not stable yet. Bug report and feature requ
 Kubernetes provides [Network Policies](https://kubernetes.io/docs/concepts/services-networking/network-policies/) for network security. Currently net-attach-def does not support Network Policies because net-attach-def is CRD, user defined resources, outside of Kubernetes.
 multi-network policy implements Network Policiy functionality for net-attach-def, by iptables and provies network security for net-attach-def networks.
 
+
+![Multi NetworkPolicy Overview](docs/images/multi-networkpolicy-overview.png)
+
 ## Quickstart
 
 Install MultiNetworkPolicy CRD into Kubernetes.
