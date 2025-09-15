@@ -228,7 +228,11 @@ func TestApplyPodRules(t *testing.T) {
 	if nftState == nil {
 		t.Fatalf("bootstrapNetfilterRules() returned nil state")
 	}
-	mockServer := &Server{}
+	mockServer := &Server{Options: &Options{}}
+	err = nftState.applyCommonChainRules(mockServer)
+	if err != nil {
+		t.Fatalf("applyCommonChainRules() failed: %v", err)
+	}
 	// Define protocol variables to take their addresses
 	protocolTCP := corev1.ProtocolTCP
 	protocolUDP := corev1.ProtocolUDP

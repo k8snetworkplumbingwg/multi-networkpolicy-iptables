@@ -64,6 +64,8 @@ func bootstrapNetfilterRules(nft *nftables.Conn, podInfo *controllers.PodInfo) (
 			Name:   "nat",
 		}),
 	}
+	// the netfilter hook system
+	// ref: https://wiki.nftables.org/wiki-nftables/index.php/Netfilter_hooks
 	// Create our chains if they don't already exist
 	// nft add chain inet filter input { type filter hook input priority 0 \; }
 	nftState.input = nft.AddChain(&nftables.Chain{
@@ -252,7 +254,38 @@ func (n *nftState) allowICMP(chain *nftables.Chain, icmpv6 bool) error {
 	return nil
 }
 
-func (n *nftState) applyPrefixRules(chain *nftables.Chain, prefixes []string, prefix string) error {
+func getPrefixesAsSetInterval(prefixes []string) ([]nftables.SetElement, []nftables.SetElement, error) {
+	v4Prefixes := []nftables.SetElement{}
+	v6Prefixes := []nftables.SetElement{}
+	for index, addr := range prefixes {
+		net, err := netip.ParsePrefix(addr) // validate
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to parse CIDR %q prefix[%d]: %v", addr, index, err)
+		}
+		if net.Addr().Is4() {
+			// specific first element to inform nftables this is an interval set
+			if index == 0 {
+				v4Prefixes = append(v4Prefixes, nftables.SetElement{
+					Key:         netip.IPv4Unspecified().AsSlice(),
+					IntervalEnd: true,
+				})
+			}
+			v4Prefixes = append(v4Prefixes, convertPrefixToSet(net)...)
+		} else {
+			// specific first element to inform nftables this is an interval set
+			if index == 0 {
+				v6Prefixes = append(v6Prefixes, nftables.SetElement{
+					Key:         netip.IPv6Unspecified().AsSlice(),
+					IntervalEnd: true,
+				})
+			}
+			v6Prefixes = append(v6Prefixes, convertPrefixToSet(net)...)
+		}
+	}
+	return v4Prefixes, v6Prefixes, nil
+}
+
+func (n *nftState) applyCommonPrefixRules(chain *nftables.Chain, prefixes []string, prefix string) error {
 	v4Set := &nftables.Set{
 		Table:    n.filter,
 		Name:     fmt.Sprintf("%s_v4_%s", prefix, getAddressSuffix(chain)),
@@ -265,29 +298,11 @@ func (n *nftState) applyPrefixRules(chain *nftables.Chain, prefixes []string, pr
 		KeyType:  nftables.TypeIP6Addr,
 		Interval: true,
 	}
-	v4Prefixes := []nftables.SetElement{
-		{
-			Key:         netip.IPv4Unspecified().AsSlice(),
-			IntervalEnd: true,
-		},
+	v4Prefixes, v6Prefixes, err := getPrefixesAsSetInterval(prefixes)
+	if err != nil {
+		return fmt.Errorf("failed to get prefix sets of prefixes [%s]: %w", prefixes, err)
 	}
-	v6Prefixes := []nftables.SetElement{
-		{
-			Key:         netip.IPv6Unspecified().AsSlice(),
-			IntervalEnd: true,
-		},
-	}
-	for index, addr := range prefixes {
-		net, err := netip.ParsePrefix(addr) // validate
-		if err != nil {
-			return fmt.Errorf("failed to parse CIDR %q allowSrcPrefix[%d]: %v", addr, index, err)
-		}
-		if net.Addr().Is4() {
-			v4Prefixes = append(v4Prefixes, convertPrefixToSet(net)...)
-		} else {
-			v6Prefixes = append(v6Prefixes, convertPrefixToSet(net)...)
-		}
-	}
+
 	if len(v4Prefixes) > 0 {
 		if err := n.nft.AddSet(v4Set, v4Prefixes); err != nil {
 			return fmt.Errorf("failed to add ipv4 set %q: %w", v4Set.Name, err)
@@ -378,6 +393,7 @@ func (n *nftState) allowConntracked(chain *nftables.Chain) error {
 }
 
 func (n *nftState) applyCommonChainRules(s *Server) error {
+	klog.Infof("Applying common chain rules")
 	if s.Options.acceptICMPv6 {
 		n.allowICMP(n.commonIngressChain, true)
 		n.allowICMP(n.commonEgressChain, true)
@@ -388,21 +404,23 @@ func (n *nftState) applyCommonChainRules(s *Server) error {
 	}
 
 	if len(s.Options.allowSrcPrefix) != 0 {
-		if err := n.applyPrefixRules(n.commonIngressChain, s.Options.allowSrcPrefix, common); err != nil {
+		if err := n.applyCommonPrefixRules(n.commonIngressChain, s.Options.allowSrcPrefix, common); err != nil {
 			return fmt.Errorf("failed to apply common ingress rules: %v", err)
 		}
-		if err := n.allowConntracked(n.commonIngressChain); err != nil {
-			return fmt.Errorf("failed to apply common ingress conntrack rules: %v", err)
-		}
+
 	}
 
 	if len(s.Options.allowDstPrefix) != 0 {
-		if err := n.applyPrefixRules(n.commonEgressChain, s.Options.allowDstPrefix, common); err != nil {
+		if err := n.applyCommonPrefixRules(n.commonEgressChain, s.Options.allowDstPrefix, common); err != nil {
 			return fmt.Errorf("failed to apply common egress rules: %v", err)
 		}
-		if err := n.allowConntracked(n.commonEgressChain); err != nil {
-			return fmt.Errorf("failed to apply common egress conntrack rules: %v", err)
-		}
+	}
+	// Always allow conntracked connections
+	if err := n.allowConntracked(n.commonIngressChain); err != nil {
+		return fmt.Errorf("failed to apply common ingress conntrack rules: %v", err)
+	}
+	if err := n.allowConntracked(n.commonEgressChain); err != nil {
+		return fmt.Errorf("failed to apply common egress conntrack rules: %v", err)
 	}
 	if err := n.nft.Flush(); err != nil {
 		return fmt.Errorf("nftables flush failed for common chain rules with: %v", err)
@@ -439,15 +457,6 @@ func ifname(n string) []byte {
 
 func userDataComment(comment string) []byte {
 	return userdata.AppendString([]byte{}, userdata.TypeComment, comment)
-}
-
-func (n *nftState) applyPortRules() error {
-	return nil
-}
-
-func (n *nftState) applyHostRules() error {
-
-	return nil
 }
 
 func (n *nftState) applyPodInterfaceRules(chain, policyChain *nftables.Chain, policy *multiv1beta1.MultiNetworkPolicy, podInterface controllers.InterfaceInfo) error {
@@ -592,12 +601,197 @@ func getAddressSuffix(chain *nftables.Chain) string {
 	return destinationAddressSuffix
 }
 
-func (n *nftState) applyPolicyPeersRulesIPBlock(chain *nftables.Chain, peer multiv1beta1.MultiNetworkPolicyPeer, podInfo *controllers.PodInfo, policyNetworks []string, peerIndex int) error {
+func (n *nftState) applyPolicyPeersRulesIPBlock(chain *nftables.Chain, policyName string, peer multiv1beta1.MultiNetworkPolicyPeer, podInfo *controllers.PodInfo, peerIndex int) error {
 	// TODO: implement IPBlock rules
+	exceptPrefix := "peer_ipblock_except"
+	prefix := "peer_ipblock"
+	v4ExceptPrefixes, v6ExceptPrefixes, err := getPrefixesAsSetInterval(peer.IPBlock.Except)
+	if err != nil {
+		return fmt.Errorf("failed to get except prefix sets of prefixes [%s]: %w", peer.IPBlock.Except, err)
+	}
+	v4Prefixes, v6Prefixes, err := getPrefixesAsSetInterval([]string{peer.IPBlock.CIDR})
+	if err != nil {
+		return fmt.Errorf("failed to get prefix sets of prefixes [%s]: %w", peer.IPBlock.CIDR, err)
+	}
+
+	if len(v4Prefixes) > 0 {
+		offset := IPv4OffSet
+		if !isIngressChain(chain) {
+			offset = IPv4OffSet + net.IPv4len
+		}
+		if len(v4ExceptPrefixes) > 0 {
+			v4ExceptSet := &nftables.Set{
+				Table:     chain.Table,
+				Name:      fmt.Sprintf("%s_v4_%s_%d", exceptPrefix, getAddressSuffix(chain), peerIndex),
+				Anonymous: true,
+				Constant:  true,
+				Counter:   true,
+				KeyType:   nftables.TypeIPAddr,
+				Interval:  true,
+			}
+			if err := n.nft.AddSet(v4ExceptSet, v4ExceptPrefixes); err != nil {
+				return fmt.Errorf("failed to add ipv4 set %q: %w", v4ExceptSet.Name, err)
+			}
+			n.nft.AddRule(&nftables.Rule{
+				Table:    chain.Table,
+				Chain:    chain,
+				UserData: userDataComment(fmt.Sprintf("policy:%s excepts-for:%s", policyName, peer.IPBlock.CIDR)),
+				Exprs: []expr.Any{
+					&expr.Payload{
+						DestRegister: 1,
+						Base:         expr.PayloadBaseNetworkHeader,
+						Offset:       offset,
+						Len:          uint32(net.IPv4len),
+					},
+					&expr.Lookup{
+						SetName:        v4ExceptSet.Name,
+						SetID:          v4ExceptSet.ID,
+						SourceRegister: 1,
+					},
+					&expr.Verdict{
+						Kind: expr.VerdictDrop,
+					},
+				},
+			})
+		}
+		v4Set := &nftables.Set{
+			Table:     chain.Table,
+			Name:      fmt.Sprintf("%s_v4_%s_%d", prefix, getAddressSuffix(chain), peerIndex),
+			Anonymous: true,
+			Constant:  true,
+			Counter:   true,
+			KeyType:   nftables.TypeIPAddr,
+			Interval:  true,
+		}
+		if err := n.nft.AddSet(v4Set, v4Prefixes); err != nil {
+			return fmt.Errorf("failed to add ipv4 set %q: %w", v4Set.Name, err)
+		}
+		n.nft.AddRule(&nftables.Rule{
+			Table:    chain.Table,
+			Chain:    chain,
+			UserData: userDataComment(fmt.Sprintf("policy:%s cidr:%s", policyName, peer.IPBlock.CIDR)),
+			Exprs: []expr.Any{
+				&expr.Payload{
+					DestRegister: 1,
+					Base:         expr.PayloadBaseNetworkHeader,
+					Offset:       offset,
+					Len:          uint32(net.IPv4len),
+				},
+				&expr.Lookup{
+					SetName:        v4Set.Name,
+					SetID:          v4Set.ID,
+					SourceRegister: 1,
+				},
+				&expr.Meta{Key: expr.MetaKeyMARK, Register: 1},
+				&expr.Bitwise{
+					SourceRegister: 1,
+					DestRegister:   1,
+					Len:            4,
+					Mask:           binaryutil.NativeEndian.PutUint32(^uint32(0x20000)), // 0xfffdffff
+					Xor:            binaryutil.NativeEndian.PutUint32(0),
+				},
+				&expr.Bitwise{
+					SourceRegister: 1,
+					DestRegister:   1,
+					Len:            4,
+					Mask:           binaryutil.NativeEndian.PutUint32(0xffffffff),
+					Xor:            binaryutil.NativeEndian.PutUint32(0x20000), // 0x200000
+				},
+				&expr.Meta{Key: expr.MetaKeyMARK, SourceRegister: true, Register: 1},
+			},
+		})
+	}
+	if len(v6Prefixes) > 0 {
+		offset := IPv6OffSet
+		if !isIngressChain(chain) {
+			offset = IPv6OffSet + net.IPv6len
+		}
+		if len(v6ExceptPrefixes) > 0 {
+			v6ExceptSet := &nftables.Set{
+				Table:     chain.Table,
+				Name:      fmt.Sprintf("%s_v6_%s_%d", exceptPrefix, getAddressSuffix(chain), peerIndex),
+				Anonymous: true,
+				Constant:  true,
+				Counter:   true,
+				KeyType:   nftables.TypeIP6Addr,
+				Interval:  true,
+			}
+			if err := n.nft.AddSet(v6ExceptSet, v6ExceptPrefixes); err != nil {
+				return fmt.Errorf("failed to add ipv6 set %q: %w", v6ExceptSet.Name, err)
+			}
+			n.nft.AddRule(&nftables.Rule{
+				Table:    chain.Table,
+				Chain:    chain,
+				UserData: userDataComment(fmt.Sprintf("policy:%s excepts-for:%s", policyName, peer.IPBlock.CIDR)),
+				Exprs: []expr.Any{
+					&expr.Payload{
+						DestRegister: 1,
+						Base:         expr.PayloadBaseNetworkHeader,
+						Offset:       offset,
+						Len:          uint32(net.IPv6len),
+					},
+					&expr.Lookup{
+						SetName:        v6ExceptSet.Name,
+						SetID:          v6ExceptSet.ID,
+						SourceRegister: 1,
+					},
+					&expr.Verdict{
+						Kind: expr.VerdictDrop,
+					},
+				},
+			})
+		}
+		v6Set := &nftables.Set{
+			Table:     chain.Table,
+			Name:      fmt.Sprintf("%s_v6_%s_%d", prefix, getAddressSuffix(chain), peerIndex),
+			Anonymous: true,
+			Constant:  true,
+			Counter:   true,
+			KeyType:   nftables.TypeIP6Addr,
+			Interval:  true,
+		}
+		if err := n.nft.AddSet(v6Set, v6Prefixes); err != nil {
+			return fmt.Errorf("failed to add ipv6 set %q: %w", v6Set.Name, err)
+		}
+		n.nft.AddRule(&nftables.Rule{
+			Table:    chain.Table,
+			Chain:    chain,
+			UserData: userDataComment(fmt.Sprintf("policy:%s cidr:%s", policyName, peer.IPBlock.CIDR)),
+			Exprs: []expr.Any{
+				&expr.Payload{
+					DestRegister: 1,
+					Base:         expr.PayloadBaseNetworkHeader,
+					Offset:       offset,
+					Len:          uint32(net.IPv6len),
+				},
+				&expr.Lookup{
+					SetName:        v6Set.Name,
+					SetID:          v6Set.ID,
+					SourceRegister: 1,
+				},
+				&expr.Meta{Key: expr.MetaKeyMARK, Register: 1},
+				&expr.Bitwise{
+					SourceRegister: 1,
+					DestRegister:   1,
+					Len:            4,
+					Mask:           binaryutil.NativeEndian.PutUint32(^uint32(0x20000)), // 0xfffdffff
+					Xor:            binaryutil.NativeEndian.PutUint32(0),
+				},
+				&expr.Bitwise{
+					SourceRegister: 1,
+					DestRegister:   1,
+					Len:            4,
+					Mask:           binaryutil.NativeEndian.PutUint32(0xffffffff),
+					Xor:            binaryutil.NativeEndian.PutUint32(0x20000), // 0x200000
+				},
+				&expr.Meta{Key: expr.MetaKeyMARK, SourceRegister: true, Register: 1},
+			},
+		})
+	}
 	return nil
 }
 
-func (n *nftState) applyPolicyPeersRulesSelector(s *Server, chain *nftables.Chain, peer multiv1beta1.MultiNetworkPolicyPeer, podInfo *controllers.PodInfo, policyNetworks []string, peerIndex int) error {
+func (n *nftState) applyPolicyPeersRulesSelector(s *Server, chain *nftables.Chain, policyName string, peer multiv1beta1.MultiNetworkPolicyPeer, podInfo *controllers.PodInfo, policyNetworks []string, peerIndex int) error {
 	// TODO: implement selector rules
 	return nil
 }
@@ -623,11 +817,11 @@ func (n *nftState) applyPolicyPeersRules(s *Server, chain *nftables.Chain, polic
 	s.podMap.Update(s.podChanges)
 	for index, peer := range peers {
 		if peer.IPBlock != nil {
-			n.applyPolicyPeersRulesIPBlock(peersChain, peer, podInfo, policyNetworks, index)
+			n.applyPolicyPeersRulesIPBlock(peersChain, policyName, peer, podInfo, index)
 			continue
 		}
 		if peer.PodSelector != nil || peer.NamespaceSelector != nil {
-			n.applyPolicyPeersRulesSelector(s, peersChain, peer, podInfo, policyNetworks, index)
+			n.applyPolicyPeersRulesSelector(s, peersChain, policyName, peer, podInfo, policyNetworks, index)
 			continue
 		}
 		klog.Errorf("unknown rule: %+v", peer)
