@@ -20,3 +20,5 @@ gopath/
 pods.yaml
 policies.yaml
 *.nft
+*.iptables
+*.ip6tables

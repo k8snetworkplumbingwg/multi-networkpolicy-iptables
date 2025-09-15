@@ -438,9 +438,7 @@ func ifname(n string) []byte {
 }
 
 func userDataComment(comment string) []byte {
-	userComment := []byte{}
-	userdata.AppendString(userComment, userdata.TypeComment, comment)
-	return userComment
+	return userdata.AppendString([]byte{}, userdata.TypeComment, comment)
 }
 
 func (n *nftState) applyPortRules() error {
@@ -459,7 +457,7 @@ func (n *nftState) applyPodInterfaceRules(chain, policyChain *nftables.Chain, po
 	n.nft.AddRule(&nftables.Rule{
 		Table:    n.filter,
 		Chain:    chain,
-		UserData: userDataComment(fmt.Sprintf("policy:%s net-attach-def:%s", policy.Name, podInterface.NetattachName)),
+		UserData: userDataComment(fmt.Sprintf("policy:%s net-attach-def:%s interface:%s [%q]", policy.Name, podInterface.NetattachName, podInterface.InterfaceName, podInterface.InterfaceType)),
 		Exprs: []expr.Any{
 			&expr.Meta{Key: getMetaKeyInterface(chain), Register: 1},
 			&expr.Cmp{
@@ -604,12 +602,23 @@ func (n *nftState) applyPolicyPeersRulesSelector(s *Server, chain *nftables.Chai
 	return nil
 }
 
-func (n *nftState) applyPolicyPeersRules(s *Server, chain *nftables.Chain, peers []multiv1beta1.MultiNetworkPolicyPeer, podInfo *controllers.PodInfo, policyNetworks []string, peerIndex int) error {
+func (n *nftState) applyPolicyPeersRules(s *Server, chain *nftables.Chain, policyName string, peers []multiv1beta1.MultiNetworkPolicyPeer, podInfo *controllers.PodInfo, policyNetworks []string, peerIndex int) error {
 	peersName := fmt.Sprintf("%s-%s-%d", chain.Name, peersChainSuffix, peerIndex)
 	peersChain := n.nft.AddChain(&nftables.Chain{
 		Name:  peersName,
 		Table: chain.Table,
 	})
+	n.nft.AddRule(&nftables.Rule{
+		Table:    chain.Table,
+		Chain:    chain,
+		UserData: userDataComment(fmt.Sprintf("policy:%s", policyName)),
+		Exprs: []expr.Any{
+			&expr.Counter{},
+			&expr.Verdict{
+				Kind:  expr.VerdictJump,
+				Chain: peersChain.Name,
+			},
+		}})
 	// sync podmap before calculating rules
 	s.podMap.Update(s.podChanges)
 	for index, peer := range peers {
@@ -628,7 +637,7 @@ func (n *nftState) applyPolicyPeersRules(s *Server, chain *nftables.Chain, peers
 		n.nft.AddRule(&nftables.Rule{
 			Table:    chain.Table,
 			Chain:    peersChain,
-			UserData: userDataComment(fmt.Sprintf("policy:%s no ports skipped accept all", peersChain.Name)),
+			UserData: userDataComment(fmt.Sprintf("policy:%s no ports skipped accept all", policyName)),
 			Exprs: []expr.Any{
 				&expr.Counter{},
 				&expr.Meta{Key: expr.MetaKeyMARK, Register: 1},
@@ -665,17 +674,12 @@ func (n *nftState) getInetSet(chain *nftables.Chain, portsName, suffix string) *
 	}
 }
 
-func (n *nftState) applyProtoPortsRules(chain *nftables.Chain, set *nftables.Set, interfaceName string, unixProto []byte) error {
+func (n *nftState) applyProtoPortsRules(chain *nftables.Chain, policyName string, set *nftables.Set, unixProto []byte) error {
 	n.nft.AddRule(&nftables.Rule{
-		Table: chain.Table,
-		Chain: chain,
+		Table:    chain.Table,
+		Chain:    chain,
+		UserData: userDataComment(fmt.Sprintf("policy:%s", policyName)),
 		Exprs: []expr.Any{
-			&expr.Meta{Key: getMetaKeyInterface(chain), Register: 1},
-			&expr.Cmp{
-				Register: 1,
-				Op:       expr.CmpOpEq,
-				Data:     ifname(interfaceName),
-			},
 			&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
 			&expr.Cmp{
 				Register: 1,
@@ -720,7 +724,7 @@ func (n *nftState) applyProtoPortsRules(chain *nftables.Chain, set *nftables.Set
 	return nil
 }
 
-func (n *nftState) applyPolicyPortRules(chain *nftables.Chain, ports []multiv1beta1.MultiNetworkPolicyPort, podInterface controllers.InterfaceInfo, portIndex int) error {
+func (n *nftState) applyPolicyPortsRules(chain *nftables.Chain, policyName string, ports []multiv1beta1.MultiNetworkPolicyPort, portIndex int) error {
 	portsName := fmt.Sprintf("%s-%s-%d", chain.Name, portsChainSuffix, portIndex)
 	// create ports chain
 	portChain := n.nft.AddChain(&nftables.Chain{
@@ -728,8 +732,9 @@ func (n *nftState) applyPolicyPortRules(chain *nftables.Chain, ports []multiv1be
 		Table: chain.Table,
 	})
 	n.nft.AddRule(&nftables.Rule{
-		Table: chain.Table,
-		Chain: chain,
+		Table:    chain.Table,
+		Chain:    chain,
+		UserData: userDataComment(fmt.Sprintf("policy:%s", policyName)),
 		Exprs: []expr.Any{
 			&expr.Counter{},
 			&expr.Verdict{
@@ -789,7 +794,7 @@ func (n *nftState) applyPolicyPortRules(chain *nftables.Chain, ports []multiv1be
 		if err := n.nft.AddSet(tcpSet, portsTCP); err != nil {
 			return fmt.Errorf("failed to add tcp port set %q: %w", tcpSet.Name, err)
 		}
-		if err := n.applyProtoPortsRules(portChain, tcpSet, podInterface.InterfaceName, unixFlag); err != nil {
+		if err := n.applyProtoPortsRules(portChain, policyName, tcpSet, unixFlag); err != nil {
 			return fmt.Errorf("failed to apply tcp port rules for set %q: %w", tcpSet.Name, err)
 		}
 	}
@@ -799,7 +804,7 @@ func (n *nftState) applyPolicyPortRules(chain *nftables.Chain, ports []multiv1be
 		if err := n.nft.AddSet(udpSet, portsUDP); err != nil {
 			return fmt.Errorf("failed to add udp port set %q: %w", udpSet.Name, err)
 		}
-		if err := n.applyProtoPortsRules(portChain, udpSet, podInterface.InterfaceName, unixFlag); err != nil {
+		if err := n.applyProtoPortsRules(portChain, policyName, udpSet, unixFlag); err != nil {
 			return fmt.Errorf("failed to apply udp port rules for set %q: %w", udpSet.Name, err)
 		}
 	}
@@ -809,7 +814,7 @@ func (n *nftState) applyPolicyPortRules(chain *nftables.Chain, ports []multiv1be
 		if err := n.nft.AddSet(sctpSet, portsSCTP); err != nil {
 			return fmt.Errorf("failed to add sctp port set %q: %w", sctpSet.Name, err)
 		}
-		if err := n.applyProtoPortsRules(portChain, sctpSet, podInterface.InterfaceName, unixFlag); err != nil {
+		if err := n.applyProtoPortsRules(portChain, policyName, sctpSet, unixFlag); err != nil {
 			return fmt.Errorf("failed to apply sctp port rules for set %q: %w", sctpSet.Name, err)
 		}
 	}
@@ -844,7 +849,6 @@ func (n *nftState) applyPolicyPortRules(chain *nftables.Chain, ports []multiv1be
 
 // s *Server, podInfo *controllers.PodInfo, pIndex, iIndex int, from []multiv1beta1.MultiNetworkPolicyPeer, policyNetworks []string
 func (n *nftState) applyPodRules(s *Server, chain *nftables.Chain, podInfo *controllers.PodInfo, idx int, policy *multiv1beta1.MultiNetworkPolicy, policyNetworks []string) error {
-	_ = s
 	// add chain inet filter MULTI-INGRESS-<idx>
 	policyChain := n.nft.AddChain(&nftables.Chain{
 		Name:  fmt.Sprintf("%s-%d", chain.Name, idx),
@@ -860,20 +864,12 @@ func (n *nftState) applyPodRules(s *Server, chain *nftables.Chain, podInfo *cont
 			// reset previous mark bits
 			n.applyMarkReset(policyChain, policy.Name, index)
 			// apply ports
-
-			for _, podIntf := range podInfo.Interfaces {
-				if podIntf.CheckPolicyNetwork(policyNetworks) {
-					if err := n.applyPolicyPortRules(policyChain, ingress.Ports, podIntf, index); err != nil {
-						return fmt.Errorf("failed to apply ingress ports for policy %q: %w", policy.Name, err)
-					}
-					if err := n.applyPolicyPeersRules(s, policyChain, ingress.From, podInfo, policyNetworks, index); err != nil {
-						return fmt.Errorf("failed to apply ingress address rules for policy %q: %w", policy.Name, err)
-					}
-				}
+			if err := n.applyPolicyPortsRules(policyChain, policy.Name, ingress.Ports, index); err != nil {
+				return fmt.Errorf("failed to apply ingress ports for policy %q: %w", policy.Name, err)
 			}
-
-			// apply addresses
-			_ = ingress
+			if err := n.applyPolicyPeersRules(s, policyChain, policy.Name, ingress.From, podInfo, policyNetworks, index); err != nil {
+				return fmt.Errorf("failed to apply ingress address rules for policy %q: %w", policy.Name, err)
+			}
 
 			// Check if we matched something and do a early return
 			n.applyMarkCheck(policyChain, policy.Name, index)
@@ -881,18 +877,12 @@ func (n *nftState) applyPodRules(s *Server, chain *nftables.Chain, podInfo *cont
 	} else {
 		for index, egress := range policy.Spec.Egress {
 			n.applyMarkReset(policyChain, policy.Name, index)
-			for _, podIntf := range podInfo.Interfaces {
-				if podIntf.CheckPolicyNetwork(policyNetworks) {
-					if err := n.applyPolicyPortRules(policyChain, egress.Ports, podIntf, index); err != nil {
-						return fmt.Errorf("failed to apply egress ports for policy %q: %w", policy.Name, err)
-					}
-					if err := n.applyPolicyPeersRules(s, policyChain, egress.To, podInfo, policyNetworks, index); err != nil {
-						return fmt.Errorf("failed to apply egress address rules for policy %q: %w", policy.Name, err)
-					}
-				}
+			if err := n.applyPolicyPortsRules(policyChain, policy.Name, egress.Ports, index); err != nil {
+				return fmt.Errorf("failed to apply egress ports for policy %q: %w", policy.Name, err)
 			}
-			_ = egress
-
+			if err := n.applyPolicyPeersRules(s, policyChain, policy.Name, egress.To, podInfo, policyNetworks, index); err != nil {
+				return fmt.Errorf("failed to apply egress address rules for policy %q: %w", policy.Name, err)
+			}
 			n.applyMarkCheck(policyChain, policy.Name, index)
 		}
 	}
