@@ -41,7 +41,7 @@ metadata:
 spec:
   containers:
   - name: macvlan-worker1
-    image: ghcr.io/k8snetworkplumbingwg/multi-networkpolicy-iptables:e2e-test
+    image: localhost:5000/multi-networkpolicy-iptables:e2e-test
     command: ["nc", "-klp", "5555"]
     securityContext:
       privileged: true
@@ -59,7 +59,7 @@ metadata:
 spec:
   containers:
   - name: macvlan-worker1
-    image: ghcr.io/k8snetworkplumbingwg/multi-networkpolicy-iptables:e2e-test
+    image: localhost:5000/multi-networkpolicy-iptables:e2e-test
     command: ["nc", "-klp", "5555"]
     securityContext:
       privileged: true
@@ -77,7 +77,7 @@ metadata:
 spec:
   containers:
   - name: macvlan-worker1
-    image: ghcr.io/k8snetworkplumbingwg/multi-networkpolicy-iptables:e2e-test
+    image: localhost:5000/multi-networkpolicy-iptables:e2e-test
     command: ["nc", "-klp", "5555"]
     securityContext:
       privileged: true

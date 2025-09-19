@@ -17,10 +17,8 @@ limitations under the License.
 package server
 
 import (
-	"bufio"
 	"flag"
 	"net"
-	"os"
 	"strings"
 
 	"github.com/k8snetworkplumbingwg/multi-networkpolicy-iptables/pkg/controllers"
@@ -73,31 +71,6 @@ func (o *Options) AddFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&o.allowSrcPrefixText, "allow-src-prefix", "", "Accept source IPv6 prefix list, comma separated (e.g. \"fe80::/10\")")
 	fs.StringVar(&o.allowDstPrefixText, "allow-dst-prefix", "", "Accept destination IPv6 prefix list, comma separated (e.g. \"fe80:/10,ff00::/8\")")
 	fs.AddGoFlagSet(flag.CommandLine)
-}
-
-func parseCustomRuleFile(filename string, rules *[]string) error {
-	if filename != "" {
-		*rules = []string{}
-		fp, err := os.Open(filename)
-		if err != nil {
-			return err
-		}
-		defer fp.Close()
-
-		scanner := bufio.NewScanner(fp)
-		for scanner.Scan() {
-			rule := scanner.Text()
-			if strings.HasPrefix(rule, "#") { // skip rule begin with '#'
-				continue
-			}
-			*rules = append(*rules, rule)
-		}
-
-		if err := scanner.Err(); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func parseIPPrefixText(prefixText string, prefixList *[]string) error {

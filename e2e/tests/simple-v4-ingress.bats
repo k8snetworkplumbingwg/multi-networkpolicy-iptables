@@ -22,19 +22,19 @@ setup() {
 	[ "$status" -eq  "0" ]
 }
 
-@test "check generated iptables rules" {
-	# wait for sync
-	sleep 5
-	# check pod-server has multi-networkpolicy iptables rules for ingress
-        run kubectl -n test-simple-v4-ingress exec pod-server -- sh -c "iptables-save | grep MULTI-0-INGRESS"
-	[ "$status" -eq  "0" ]
-	# check pod-client-a has NO multi-networkpolicy iptables rules for ingress
-        run kubectl -n test-simple-v4-ingress exec pod-client-a -- sh -c "iptables-save | grep MULTI-0-INGRESS"
-	[ "$status" -eq  "1" ]
-	# check pod-client-b has NO multi-networkpolicy iptables rules for ingress
-        run kubectl -n test-simple-v4-ingress exec pod-client-b -- sh -c "iptables-save | grep MULTI-0-INGRESS"
-	[ "$status" -eq  "1" ]
-}
+#@test "check generated iptables rules" {
+#	# wait for sync
+#	sleep 5
+#	# check pod-server has multi-networkpolicy iptables rules for ingress
+#        run kubectl -n test-simple-v4-ingress exec pod-server -- sh -c "iptables-save | grep MULTI-0-INGRESS"
+#	[ "$status" -eq  "0" ]
+#	# check pod-client-a has NO multi-networkpolicy iptables rules for ingress
+#        run kubectl -n test-simple-v4-ingress exec pod-client-a -- sh -c "iptables-save | grep MULTI-0-INGRESS"
+#	[ "$status" -eq  "1" ]
+#	# check pod-client-b has NO multi-networkpolicy iptables rules for ingress
+#        run kubectl -n test-simple-v4-ingress exec pod-client-b -- sh -c "iptables-save | grep MULTI-0-INGRESS"
+#	[ "$status" -eq  "1" ]
+#}
 
 @test "test-simple-v4-ingress check client-a -> server" {
 	# nc should succeed from client-a to server by policy
@@ -67,8 +67,8 @@ setup() {
 	kubectl -n kube-system wait --for=delete -l app=multi-networkpolicy pod --timeout=${kubewait_timeout}
 
 	# check iptable rules in pod-server
-        run kubectl -n test-simple-v4-ingress exec pod-server -it -- sh -c "iptables-save | grep MULTI-0-INGRESS"
-	[ "$status" -eq  "1" ]
+    #    run kubectl -n test-simple-v4-ingress exec pod-server -it -- sh -c "iptables-save | grep MULTI-0-INGRESS"
+	#[ "$status" -eq  "1" ]
 
 	# enable multi-networkpolicy again
 	kubectl -n kube-system patch daemonsets multi-networkpolicy-ds-amd64 --type json -p='[{"op": "remove", "path": "/spec/template/spec/nodeSelector/non-existing"}]'

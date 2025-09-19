@@ -10,6 +10,7 @@ OCI_BIN="${OCI_BIN:-docker}"
 kind_network='kind'
 
 $OCI_BIN build -t localhost:5000/multus-networkpolicy-iptables:e2e -f ../Dockerfile ..
+$OCI_BIN build -t localhost:5000/multi-networkpolicy-iptables:e2e-test -f Dockerfile .
 
 # deploy cluster with kind
 cat <<EOF | kind create cluster --config=-
@@ -25,6 +26,7 @@ EOF
 
 # load multus image from container host to kind node
 kind load docker-image localhost:5000/multus-networkpolicy-iptables:e2e
+kind load docker-image localhost:5000/multi-networkpolicy-iptables:e2e-test
 
 kind export kubeconfig
 sleep 1

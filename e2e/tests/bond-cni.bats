@@ -26,7 +26,7 @@ setup() {
 }
 
 @test "bond-testing check pod-c -> pod-a" {
-	run kubectl -n bond-testing exec pod-client-b -- sh -c "echo x | nc -w 1 ${pod_a_net1} 5555"
+	run kubectl -n bond-testing exec pod-c -- sh -c "echo x | nc -w 1 ${pod_a_net1} 5555"
 	[ "$status" -eq  "1" ]
 }
 

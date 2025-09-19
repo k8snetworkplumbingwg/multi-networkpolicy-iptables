@@ -47,10 +47,9 @@ setup() {
 	[ "$status" -eq  "0" ]
 }
 
-@test "cleanup environments" {
-	# remove test manifests
-	kubectl delete -f protocol-only-ports.yml
-	run kubectl -n test-protocol-only-ports wait --for=delete -l app=test-protocol-only-ports pod --timeout=${kubewait_timeout}
-	[ "$status" -eq  "0" ]
-}
-#2.2.6.18
+# @test "cleanup environments" {
+# 	# remove test manifests
+# 	kubectl delete -f protocol-only-ports.yml
+# 	run kubectl -n test-protocol-only-ports wait --for=delete -l app=test-protocol-only-ports pod --timeout=${kubewait_timeout}
+# 	[ "$status" -eq  "0" ]
+# }

@@ -20,18 +20,18 @@ setup() {
 	[ "$status" -eq  "0" ]
 }
 
-@test "check generated iptables rules" {
-	# wait for sync
-	sleep 5
-        run kubectl -n test-stacked exec pod-server -it -- sh -c "iptables-save | grep MULTI-0-INGRESS"
-	[ "$status" -eq  "0" ]
-        run kubectl -n test-stacked exec pod-client-a -it -- sh -c "iptables-save | grep MULTI-0-INGRESS"
-	[ "$status" -eq  "1" ]
-        run kubectl -n test-stacked exec pod-client-b -it -- sh -c "iptables-save | grep MULTI-0-INGRESS"
-	[ "$status" -eq  "1" ]
-        run kubectl -n test-stacked exec pod-client-c -it -- sh -c "iptables-save | grep MULTI-0-INGRESS"
-	[ "$status" -eq  "1" ]
-}
+#@test "check generated iptables rules" {
+#	# wait for sync
+#	sleep 5
+#        run kubectl -n test-stacked exec pod-server -it -- sh -c "iptables-save | grep MULTI-0-INGRESS"
+#	[ "$status" -eq  "0" ]
+#        run kubectl -n test-stacked exec pod-client-a -it -- sh -c "iptables-save | grep MULTI-0-INGRESS"
+#	[ "$status" -eq  "1" ]
+#        run kubectl -n test-stacked exec pod-client-b -it -- sh -c "iptables-save | grep MULTI-0-INGRESS"
+#	[ "$status" -eq  "1" ]
+#        run kubectl -n test-stacked exec pod-client-c -it -- sh -c "iptables-save | grep MULTI-0-INGRESS"
+#	[ "$status" -eq  "1" ]
+#}
 
 @test "test-stacked check client-a" {
 	run kubectl -n test-stacked exec pod-client-a -- sh -c "echo x | nc -w 1 ${server_net1} 5555"

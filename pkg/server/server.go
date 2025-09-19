@@ -519,6 +519,11 @@ func (s *Server) applyPolicyRulesForPodAndFamily(pod *v1.Pod, podInfo *controlle
 	klog.V(4).Infof("Generate rules for Pod: [%s]\n", podNamespacedName(pod))
 	// nft add table inet filter
 
+	nft.FlushRuleset()
+	if err := nft.Flush(); err != nil {
+		klog.Errorf("failed to remove old rules: %s", err.Error())
+	}
+
 	nftState, err := bootstrapNetfilterRules(nft, podInfo)
 	if err != nil {
 		return fmt.Errorf("bootstrap netfilter rules failed for pod [%s]: %w", podNamespacedName(pod), err)
@@ -562,7 +567,6 @@ func (s *Server) applyPolicyRulesForPodAndFamily(pod *v1.Pod, podInfo *controlle
 			}
 		}
 		slices.Sort(policyNetworks)
-		slices.Sort(policyNetworks)
 
 		if podInfo.CheckPolicyNetwork(policyNetworks) {
 			if ingressEnable {
@@ -603,6 +607,7 @@ func (s *Server) applyPolicyRulesForPodAndFamily(pod *v1.Pod, podInfo *controlle
 		}
 		nftState.applyDropRemaining(nftState.egressChain)
 	}
+
 	if err := nftState.nft.Flush(); err != nil {
 		return fmt.Errorf("nft flush failed for pod [%s]: %w", podNamespacedName(pod), err)
 	}

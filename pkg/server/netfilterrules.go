@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"math"
 	"net"
 	"net/netip"
 	"slices"
@@ -16,6 +17,9 @@ import (
 	"go4.org/netipx"
 	"golang.org/x/sys/unix"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/klog"
 )
 
@@ -129,7 +133,7 @@ func bootstrapNetfilterRules(nft *nftables.Conn, podInfo *controllers.PodInfo) (
 		KeyType:      nftables.TypeIFName,
 		KeyByteOrder: binaryutil.NativeEndian,
 		Counter:      true,
-		Comment:      "Pod interfaces",
+		Comment:      "Pod interfaces NAT",
 	}
 	interfaceSetElements := []nftables.SetElement{}
 	for index, multiIF := range podInfo.Interfaces {
@@ -145,7 +149,7 @@ func bootstrapNetfilterRules(nft *nftables.Conn, podInfo *controllers.PodInfo) (
 		return nil, fmt.Errorf("failed to add interface set: %v", err)
 	}
 	// Add rules to jump to MULTI-INGRESS and MULTI-EGRESS chains from input and output chains respectively
-	nft.AddRule(&nftables.Rule{
+	nft.InsertRule(&nftables.Rule{
 		Table: nftState.filter,
 		Chain: nftState.input,
 		Exprs: []expr.Any{
@@ -165,7 +169,7 @@ func bootstrapNetfilterRules(nft *nftables.Conn, podInfo *controllers.PodInfo) (
 	if err := nft.Flush(); err != nil {
 		return nil, fmt.Errorf("nftables flush failed input interfaceFilterSet cannot be used: %v", err)
 	}
-	nft.AddRule(&nftables.Rule{
+	nft.InsertRule(&nftables.Rule{
 		Table: nftState.filter,
 		Chain: nftState.output,
 		Exprs: []expr.Any{
@@ -185,7 +189,7 @@ func bootstrapNetfilterRules(nft *nftables.Conn, podInfo *controllers.PodInfo) (
 	if err := nft.Flush(); err != nil {
 		return nil, fmt.Errorf("nftables flush failed ouput interfaceFilterSet cannot be used: %v", err)
 	}
-	nft.AddRule(&nftables.Rule{
+	nft.InsertRule(&nftables.Rule{
 		Table: nftState.nat,
 		Chain: nftState.prerouting,
 		Exprs: []expr.Any{
@@ -204,7 +208,7 @@ func bootstrapNetfilterRules(nft *nftables.Conn, podInfo *controllers.PodInfo) (
 	if err := nft.Flush(); err != nil {
 		return nil, fmt.Errorf("nftables flush failed prerouting interfaceNatSet cannot be used: %v", err)
 	}
-	nft.AddRule(&nftables.Rule{
+	nft.InsertRule(&nftables.Rule{
 		Table: nftState.filter,
 		Chain: nftState.ingressChain,
 		Exprs: []expr.Any{
@@ -214,7 +218,7 @@ func bootstrapNetfilterRules(nft *nftables.Conn, podInfo *controllers.PodInfo) (
 			},
 		},
 	})
-	nft.AddRule(&nftables.Rule{
+	nft.InsertRule(&nftables.Rule{
 		Table: nftState.filter,
 		Chain: nftState.egressChain,
 		Exprs: []expr.Any{
@@ -230,6 +234,7 @@ func bootstrapNetfilterRules(nft *nftables.Conn, podInfo *controllers.PodInfo) (
 	}
 	return nftState, nil
 }
+
 func (n *nftState) allowICMP(chain *nftables.Chain, icmpv6 bool) error {
 	data := []byte{unix.IPPROTO_ICMP}
 	if icmpv6 {
@@ -267,7 +272,7 @@ func getPrefixesAsSetInterval(prefixes []string) ([]nftables.SetElement, []nftab
 			if index == 0 {
 				v4Prefixes = append(v4Prefixes, nftables.SetElement{
 					Key:         netip.IPv4Unspecified().AsSlice(),
-					IntervalEnd: true,
+					IntervalEnd: true, // PATRYK ??? should this be in the first element?
 				})
 			}
 			v4Prefixes = append(v4Prefixes, convertPrefixToSet(net)...)
@@ -276,7 +281,7 @@ func getPrefixesAsSetInterval(prefixes []string) ([]nftables.SetElement, []nftab
 			if index == 0 {
 				v6Prefixes = append(v6Prefixes, nftables.SetElement{
 					Key:         netip.IPv6Unspecified().AsSlice(),
-					IntervalEnd: true,
+					IntervalEnd: true, // PATRYK ??? should this be in the first element?
 				})
 			}
 			v6Prefixes = append(v6Prefixes, convertPrefixToSet(net)...)
@@ -315,6 +320,7 @@ func (n *nftState) applyCommonPrefixRules(chain *nftables.Chain, prefixes []stri
 		if !isIngressChain(chain) {
 			offset = IPv4OffSet + net.IPv4len
 		}
+		// PATRYK - should there be distinction between source/destination???
 		n.nft.AddRule(&nftables.Rule{
 			Table: n.filter,
 			Chain: chain,
@@ -421,6 +427,7 @@ func (n *nftState) applyCommonChainRules(s *Server) error {
 	if err := n.allowConntracked(n.commonEgressChain); err != nil {
 		return fmt.Errorf("failed to apply common egress conntrack rules: %v", err)
 	}
+
 	if err := n.nft.Flush(); err != nil {
 		return fmt.Errorf("nftables flush failed for common chain rules with: %v", err)
 	}
@@ -600,7 +607,7 @@ func getAddressSuffix(chain *nftables.Chain) string {
 	return destinationAddressSuffix
 }
 
-func (n *nftState) applyPolicyPeersRulesIPBlock(chain *nftables.Chain, policyName string, peer multiv1beta1.MultiNetworkPolicyPeer, podInfo *controllers.PodInfo, peerIndex int) error {
+func (n *nftState) applyPolicyPeersRulesIPBlock(chain *nftables.Chain, policyName string, peer multiv1beta1.MultiNetworkPolicyPeer, peerIndex int) error {
 	// TODO: implement IPBlock rules
 	exceptPrefix := "peer_ipblock_except"
 	prefix := "peer_ipblock"
@@ -790,8 +797,142 @@ func (n *nftState) applyPolicyPeersRulesIPBlock(chain *nftables.Chain, policyNam
 	return nil
 }
 
-func (n *nftState) applyPolicyPeersRulesSelector(s *Server, chain *nftables.Chain, policyName string, peer multiv1beta1.MultiNetworkPolicyPeer, podInfo *controllers.PodInfo, policyNetworks []string, peerIndex int) error {
-	// TODO: implement selector rules
+func (n *nftState) applyPolicyPeersRulesSelector(s *Server, chain *nftables.Chain, policyName string, peer multiv1beta1.MultiNetworkPolicyPeer,
+	podInfo *controllers.PodInfo, policyNetworks []string, peerIndex int) error {
+	podSelector, err := metav1.LabelSelectorAsSelector(peer.PodSelector)
+	if err != nil {
+		return fmt.Errorf("pod selector: %w", err)
+	}
+
+	pods, err := s.podLister.Pods(metav1.NamespaceAll).List(podSelector)
+	if err != nil {
+		return fmt.Errorf("pod list failed: %w", err)
+	}
+
+	var nsSelector labels.Selector
+	if peer.NamespaceSelector != nil {
+		var err error
+		nsSelector, err = metav1.LabelSelectorAsSelector(peer.NamespaceSelector)
+		if err != nil {
+			return fmt.Errorf("namespace selector: %w", err)
+		}
+	}
+	s.namespaceMap.Update(s.nsChanges)
+
+	for _, sPod := range pods {
+		nsLabels, err := s.namespaceMap.GetNamespaceInfo(sPod.Namespace)
+		if err != nil {
+			klog.Errorf("cannot get namespace info: %v %v", sPod.ObjectMeta.Name, err)
+			continue
+		}
+		if nsSelector != nil && !nsSelector.Matches(labels.Set(nsLabels.Labels)) {
+			continue
+		}
+		s.podMap.Update(s.podChanges)
+		sPodinfo, err := s.podMap.GetPodInfo(sPod)
+		if err != nil {
+			klog.Errorf("cannot get %s/%s podInfo: %v", sPod.Namespace, sPod.Name, err)
+			continue
+		}
+		for _, podIntf := range podInfo.Interfaces {
+			if !podIntf.CheckPolicyNetwork(policyNetworks) {
+				continue
+			}
+			for _, sPodIntf := range sPodinfo.Interfaces {
+				if !sPodIntf.CheckPolicyNetwork(policyNetworks) {
+					continue
+				}
+
+				for _, ip := range sPodIntf.IPs {
+					if err := n.addIPRule(ip, chain, policyName, peer, peerIndex); err != nil {
+						klog.Errorf("failed to add rule for ip %q: %s", ip, err.Error())
+						continue
+					}
+				}
+
+				for _, ip := range podIntf.IPs {
+					if err := n.addIPRule(ip, chain, policyName, peer, peerIndex); err != nil {
+						klog.Errorf("failed to add rule for ip %q: %s", ip, err.Error())
+						continue
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (n *nftState) addIPRule(addr string, chain *nftables.Chain, policyName string, peer multiv1beta1.MultiNetworkPolicyPeer,
+	peerIndex int) error {
+
+	ipAddr, err := netip.ParseAddr(addr)
+	if err != nil {
+		return fmt.Errorf("failed to parse address %q", addr)
+	}
+
+	offset := IPv4OffSet
+	payloadLen := uint32(net.IPv4len)
+	keyType := nftables.TypeIPAddr
+	if ipAddr.Is6() {
+		offset = IPv6OffSet
+		payloadLen = uint32(net.IPv6len)
+		keyType = nftables.TypeIP6Addr
+	}
+
+	if !isIngressChain(chain) {
+		offset += payloadLen
+	}
+
+	ipSet := &nftables.Set{
+		Table:     chain.Table,
+		Name:      fmt.Sprintf("%s_%s_%d-%s", policyName, getAddressSuffix(chain), peerIndex, addr),
+		Anonymous: true,
+		Constant:  true,
+		Counter:   true,
+		KeyType:   keyType,
+	}
+
+	ipSetElements := []nftables.SetElement{{Key: ipAddr.AsSlice()}}
+
+	if err := n.nft.AddSet(ipSet, ipSetElements); err != nil {
+		return fmt.Errorf("failed to add address set %q: %w", ipSet.Name, err)
+	}
+
+	n.nft.AddRule(&nftables.Rule{
+		Table:    chain.Table,
+		Chain:    chain,
+		UserData: userDataComment(fmt.Sprintf("policy:%s selector-for:%s", policyName, peer.PodSelector.String())),
+		Exprs: []expr.Any{
+			&expr.Payload{
+				DestRegister: 1,
+				Base:         expr.PayloadBaseNetworkHeader,
+				Offset:       offset,
+				Len:          payloadLen,
+			},
+			&expr.Lookup{
+				SetName:        ipSet.Name,
+				SetID:          ipSet.ID,
+				SourceRegister: 1,
+			},
+			&expr.Meta{Key: expr.MetaKeyMARK, Register: 1},
+			&expr.Bitwise{
+				SourceRegister: 1,
+				DestRegister:   1,
+				Len:            4,
+				Mask:           binaryutil.NativeEndian.PutUint32(^uint32(0x20000)), // 0xfffdffff
+				Xor:            binaryutil.NativeEndian.PutUint32(0),
+			},
+			&expr.Bitwise{
+				SourceRegister: 1,
+				DestRegister:   1,
+				Len:            4,
+				Mask:           binaryutil.NativeEndian.PutUint32(0xffffffff),
+				Xor:            binaryutil.NativeEndian.PutUint32(0x20000), // 0x200000
+			},
+			&expr.Meta{Key: expr.MetaKeyMARK, SourceRegister: true, Register: 1},
+		},
+	})
+
 	return nil
 }
 
@@ -816,7 +957,7 @@ func (n *nftState) applyPolicyPeersRules(s *Server, chain *nftables.Chain, polic
 	s.podMap.Update(s.podChanges)
 	for index, peer := range peers {
 		if peer.IPBlock != nil {
-			n.applyPolicyPeersRulesIPBlock(peersChain, policyName, peer, podInfo, index)
+			n.applyPolicyPeersRulesIPBlock(peersChain, policyName, peer, index)
 			continue
 		}
 		if peer.PodSelector != nil || peer.NamespaceSelector != nil {
@@ -830,7 +971,7 @@ func (n *nftState) applyPolicyPeersRules(s *Server, chain *nftables.Chain, polic
 		n.nft.AddRule(&nftables.Rule{
 			Table:    chain.Table,
 			Chain:    peersChain,
-			UserData: userDataComment(fmt.Sprintf("policy:%s no ports skipped accept all", policyName)),
+			UserData: userDataComment(fmt.Sprintf("policy:%s no peers skipped accept all", policyName)),
 			Exprs: []expr.Any{
 				&expr.Counter{},
 				&expr.Meta{Key: expr.MetaKeyMARK, Register: 1},
@@ -857,13 +998,12 @@ func (n *nftState) applyPolicyPeersRules(s *Server, chain *nftables.Chain, polic
 
 func (n *nftState) getInetSet(chain *nftables.Chain, portsName, suffix string) *nftables.Set {
 	return &nftables.Set{
-		Table:     chain.Table,
-		Name:      fmt.Sprintf("%s_%s", getSetName(portsName), suffix),
-		Anonymous: true,
-		Constant:  true,
-		Counter:   true,
-		KeyType:   nftables.TypeInetService,
-		Interval:  true,
+		Table:    chain.Table,
+		Name:     fmt.Sprintf("%s_%s", getSetName(portsName), suffix),
+		Constant: true,
+		Counter:  true,
+		KeyType:  nftables.TypeInetService,
+		Interval: true,
 	}
 }
 
@@ -924,6 +1064,8 @@ func (n *nftState) applyPolicyPortsRules(chain *nftables.Chain, policyName strin
 		Name:  portsName,
 		Table: chain.Table,
 	})
+
+	klog.Infof("Adding rule for policy %q in the chain %q", policyName, portChain.Name)
 	n.nft.AddRule(&nftables.Rule{
 		Table:    chain.Table,
 		Chain:    chain,
@@ -935,24 +1077,31 @@ func (n *nftState) applyPolicyPortsRules(chain *nftables.Chain, policyName strin
 				Chain: portChain.Name,
 			},
 		}})
-	// 	writeLine(ipt.policyIndex, "-A", fmt.Sprintf("MULTI-%d-INGRESS", pIndex), "-j", chainName)
+
 	portsTCP := []nftables.SetElement{}
 	portsUDP := []nftables.SetElement{}
 	portsSCTP := []nftables.SetElement{}
 	// validate ports and protocols
 	for _, port := range ports {
 		var portElements []nftables.SetElement
+
+		if port.Port == nil && port.Protocol != nil {
+			port.Port = &intstr.IntOrString{Type: intstr.Int, IntVal: 1}
+			port.EndPort = new(int32)
+			*port.EndPort = math.MaxUint16
+		}
+
 		// validate port range
 		if port.Port != nil {
-			if port.Port.IntValue() < 1 || port.Port.IntValue() > 65535 {
-				return fmt.Errorf("port %d out of range, must be between 1 and 65535", port.Port.IntValue())
+			if port.Port.IntValue() < 1 || port.Port.IntValue() > math.MaxUint16 {
+				return fmt.Errorf("port %d out of range, must be between 1 and %d", port.Port.IntValue(), math.MaxUint16)
 			}
 			portElements = append(portElements, nftables.SetElement{
 				Key: binaryutil.BigEndian.PutUint16(uint16(port.Port.IntValue())),
 			})
 			if port.EndPort != nil && *port.EndPort > int32(port.Port.IntValue()) {
 				if *port.EndPort < 1 || *port.EndPort > 65535 {
-					return fmt.Errorf("port %d out of range, must be between 1 and 65535", port.Port.IntValue())
+					return fmt.Errorf("port %d out of range, must be between 1 and %d", port.Port.IntValue(), math.MaxUint16)
 				}
 				// keep the half open interval semantics of nftables
 				// e.g. 1000-2000 becomes [1000, 2001)
@@ -971,15 +1120,20 @@ func (n *nftState) applyPolicyPortsRules(chain *nftables.Chain, policyName strin
 				})
 			}
 		}
-		switch *port.Protocol {
-		case v1.ProtocolUDP:
-			portsUDP = append(portsUDP, portElements...)
-		case v1.ProtocolSCTP:
-			portsSCTP = append(portsSCTP, portElements...)
-		default:
-			// case v1.ProtocolTCP:
+
+		if port.Protocol != nil {
+			switch *port.Protocol {
+			case v1.ProtocolUDP:
+				portsUDP = append(portsUDP, portElements...)
+			case v1.ProtocolSCTP:
+				portsSCTP = append(portsSCTP, portElements...)
+			default:
+				portsTCP = append(portsTCP, portElements...)
+			}
+		} else {
 			portsTCP = append(portsTCP, portElements...)
 		}
+
 	}
 	if len(portsTCP) > 0 {
 		suffix, unixFlag := getProtocolInfo(v1.ProtocolTCP)
@@ -1011,6 +1165,7 @@ func (n *nftState) applyPolicyPortsRules(chain *nftables.Chain, policyName strin
 			return fmt.Errorf("failed to apply sctp port rules for set %q: %w", sctpSet.Name, err)
 		}
 	}
+
 	if len(ports) == 0 || (len(portsTCP) == 0 && len(portsUDP) == 0 && len(portsSCTP) == 0) {
 		// if no ports are specified, accept all ports
 		n.nft.AddRule(&nftables.Rule{
