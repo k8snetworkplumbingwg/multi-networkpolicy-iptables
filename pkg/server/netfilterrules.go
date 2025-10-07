@@ -15,6 +15,7 @@ import (
 	"github.com/k8snetworkplumbingwg/multi-networkpolicy-iptables/pkg/controllers"
 	multiv1beta1 "github.com/k8snetworkplumbingwg/multi-networkpolicy/pkg/apis/k8s.cni.cncf.io/v1beta1"
 	"go4.org/netipx"
+	"golang.org/x/net/ipv6"
 	"golang.org/x/sys/unix"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -259,13 +260,6 @@ func (n *nftState) allowICMP(chain *nftables.Chain, icmpv6 bool) error {
 	return nil
 }
 
-const (
-	ND_ROUTER_SOLICIT   = 0x85
-	ND_ROUTER_ADVERT    = 0x86
-	ND_NEIGHBOR_SOLICIT = 0x87
-	ND_NEIGHBOR_ADVERT  = 0x88
-)
-
 func (n *nftState) allowNeighborDiscovery(chain *nftables.Chain) error {
 	ndpSet := &nftables.Set{
 		Table:   n.filter,
@@ -276,16 +270,16 @@ func (n *nftState) allowNeighborDiscovery(chain *nftables.Chain) error {
 
 	ndpElements := []nftables.SetElement{
 		{
-			Key: []byte{ND_ROUTER_SOLICIT},
+			Key: []byte{byte(ipv6.ICMPTypeRouterSolicitation)},
 		},
 		{
-			Key: []byte{ND_ROUTER_ADVERT},
+			Key: []byte{byte(ipv6.ICMPTypeRouterAdvertisement)},
 		},
 		{
-			Key: []byte{ND_NEIGHBOR_SOLICIT},
+			Key: []byte{byte(ipv6.ICMPTypeNeighborSolicitation)},
 		},
 		{
-			Key: []byte{ND_NEIGHBOR_ADVERT},
+			Key: []byte{byte(ipv6.ICMPTypeNeighborAdvertisement)},
 		},
 	}
 
