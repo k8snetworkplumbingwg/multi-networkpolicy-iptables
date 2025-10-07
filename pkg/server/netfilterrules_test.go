@@ -381,12 +381,12 @@ func TestApplyPodRules(t *testing.T) {
 		if err != nil {
 			t.Fatalf("c.GetRules(%q, %q) failed: %v", filterTable.Name, fmt.Sprintf("%s-%s", egressChain, common), err)
 		}
-		if len(ingressRules) != 1 {
-			t.Errorf("ingressRules does not have the expected number of rules: 1 != %d", len(ingressRules))
+		if len(ingressRules) != 2 {
+			t.Errorf("ingressRules does not have the expected number of rules: 2 != %d", len(ingressRules))
 			return false
 		}
-		if len(egressRules) != 1 {
-			t.Errorf("egressRules does not have the expected number of rules: 1 != %d", len(egressRules))
+		if len(egressRules) != 2 {
+			t.Errorf("egressRules does not have the expected number of rules: 2 != %d", len(egressRules))
 			return false
 		}
 
@@ -608,12 +608,12 @@ func TestApplyPodRulesNoPorts(t *testing.T) {
 		if err != nil {
 			t.Fatalf("c.GetRules(%q, %q) failed: %v", filterTable.Name, fmt.Sprintf("%s-%s", egressChain, common), err)
 		}
-		if len(ingressRules) != 1 {
-			t.Errorf("ingressRules does not have the expected number of rules: 1 != %d", len(ingressRules))
+		if len(ingressRules) != 2 {
+			t.Errorf("ingressRules does not have the expected number of rules: 2 != %d", len(ingressRules))
 			return false
 		}
-		if len(egressRules) != 1 {
-			t.Errorf("egressRules does not have the expected number of rules: 1 != %d", len(egressRules))
+		if len(egressRules) != 2 {
+			t.Errorf("egressRules does not have the expected number of rules: 2 != %d", len(egressRules))
 			return false
 		}
 

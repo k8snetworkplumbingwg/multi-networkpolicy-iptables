@@ -140,8 +140,8 @@ spec:
         # - "--custom-v6-ingress-rule-file=/etc/multi-networkpolicy/rules/custom-v6-rules.txt"
         # - "--custom-v6-egress-rule-file=/etc/multi-networkpolicy/rules/custom-v6-rules.txt"
         # uncomment if you want to accept ICMP/ICMPv6 traffic
-        - "--accept-icmp"
-        - "--accept-icmpv6"
+        # - "--accept-icmp"
+        # - "--accept-icmpv6"
         - "--network-plugins=macvlan,bond"
         - -v=8
         resources:

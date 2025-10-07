@@ -259,6 +259,65 @@ func (n *nftState) allowICMP(chain *nftables.Chain, icmpv6 bool) error {
 	return nil
 }
 
+const (
+	ND_ROUTER_SOLICIT   = 0x85
+	ND_ROUTER_ADVERT    = 0x86
+	ND_NEIGHBOR_SOLICIT = 0x87
+	ND_NEIGHBOR_ADVERT  = 0x88
+)
+
+func (n *nftState) allowNeighborDiscovery(chain *nftables.Chain) error {
+	ndpSet := &nftables.Set{
+		Table:   n.filter,
+		Name:    "ndp_set",
+		KeyType: nftables.TypeICMP6Type,
+		Counter: true,
+	}
+
+	ndpElements := []nftables.SetElement{
+		{
+			Key: []byte{ND_ROUTER_SOLICIT},
+		},
+		{
+			Key: []byte{ND_ROUTER_ADVERT},
+		},
+		{
+			Key: []byte{ND_NEIGHBOR_SOLICIT},
+		},
+		{
+			Key: []byte{ND_NEIGHBOR_ADVERT},
+		},
+	}
+
+	if err := n.nft.AddSet(ndpSet, ndpElements); err != nil {
+		return fmt.Errorf("failed to add NDP set %q: %w", ndpSet.Name, err)
+	}
+
+	n.nft.AddRule(&nftables.Rule{
+		Table: n.filter,
+		Chain: chain,
+		Exprs: []expr.Any{
+			&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
+			&expr.Counter{},
+			&expr.Payload{
+				DestRegister: 1,
+				Base:         expr.PayloadBaseTransportHeader,
+				Len:          1,
+			},
+			&expr.Lookup{
+				SetName:        ndpSet.Name,
+				SetID:          ndpSet.ID,
+				SourceRegister: 1,
+			},
+			&expr.Verdict{
+				Kind: expr.VerdictAccept,
+			},
+		},
+	})
+
+	return nil
+}
+
 func getPrefixesAsSetInterval(prefixes []string) ([]nftables.SetElement, []nftables.SetElement, error) {
 	v4Prefixes := []nftables.SetElement{}
 	v6Prefixes := []nftables.SetElement{}
@@ -272,7 +331,7 @@ func getPrefixesAsSetInterval(prefixes []string) ([]nftables.SetElement, []nftab
 			if index == 0 {
 				v4Prefixes = append(v4Prefixes, nftables.SetElement{
 					Key:         netip.IPv4Unspecified().AsSlice(),
-					IntervalEnd: true, // PATRYK ??? should this be in the first element?
+					IntervalEnd: true,
 				})
 			}
 			v4Prefixes = append(v4Prefixes, convertPrefixToSet(net)...)
@@ -281,7 +340,7 @@ func getPrefixesAsSetInterval(prefixes []string) ([]nftables.SetElement, []nftab
 			if index == 0 {
 				v6Prefixes = append(v6Prefixes, nftables.SetElement{
 					Key:         netip.IPv6Unspecified().AsSlice(),
-					IntervalEnd: true, // PATRYK ??? should this be in the first element?
+					IntervalEnd: true,
 				})
 			}
 			v6Prefixes = append(v6Prefixes, convertPrefixToSet(net)...)
@@ -320,7 +379,7 @@ func (n *nftState) applyCommonPrefixRules(chain *nftables.Chain, prefixes []stri
 		if !isIngressChain(chain) {
 			offset = IPv4OffSet + net.IPv4len
 		}
-		// PATRYK - should there be distinction between source/destination???
+
 		n.nft.AddRule(&nftables.Rule{
 			Table: n.filter,
 			Chain: chain,
@@ -403,6 +462,9 @@ func (n *nftState) applyCommonChainRules(s *Server) error {
 	if s.Options.acceptICMPv6 {
 		n.allowICMP(n.commonIngressChain, true)
 		n.allowICMP(n.commonEgressChain, true)
+	} else {
+		n.allowNeighborDiscovery(n.commonIngressChain)
+		n.allowNeighborDiscovery(n.commonEgressChain)
 	}
 	if s.Options.acceptICMP {
 		n.allowICMP(n.commonIngressChain, false)
