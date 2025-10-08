@@ -329,7 +329,6 @@ func (pct *PodChangeTracker) newPodInfo(pod *v1.Pod) (*PodInfo, error) {
 	var netnsPath string
 	var netifs []InterfaceInfo
 	// get network information only if the pod is ready
-	klog.V(8).Infof("pod:%s/%s %s/%s", pod.Namespace, pod.Name, pct.hostname, pod.Spec.NodeName)
 	if IsMultiNetworkpolicyTarget(pod) {
 		networks, err := netdefutils.ParsePodNetworkAnnotation(pod)
 		if err != nil {
@@ -338,7 +337,11 @@ func (pct *PodChangeTracker) newPodInfo(pod *v1.Pod) (*PodInfo, error) {
 			}
 		}
 		// parse networkStatus
-		statuses, _ = netdefutils.GetNetworkStatus(pod)
+		statuses, err = netdefutils.GetNetworkStatus(pod)
+		if err != nil {
+			klog.Errorf("failed to get pod(%s/%s) network status: %v", pod.Namespace, pod.Name, err)
+		}
+
 		klog.V(1).Infof("pod:%s/%s %s/%s", pod.Namespace, pod.Name, pct.hostname, pod.Spec.NodeName)
 
 		// get container network namespace
@@ -367,7 +370,7 @@ func (pct *PodChangeTracker) newPodInfo(pod *v1.Pod) (*PodInfo, error) {
 			klog.V(8).Infof("networkPlugins[%s], %v", namespacedName, pct.netdefChanges.GetPluginType(namespacedName))
 			networkPlugins[namespacedName] = pct.netdefChanges.GetPluginType(namespacedName)
 		}
-		klog.V(8).Infof("netdef->pluginMap: %v", networkPlugins)
+		klog.Infof("netdef->pluginMap: %v", networkPlugins)
 
 		// match it with
 		for _, s := range statuses {

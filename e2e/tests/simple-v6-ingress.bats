@@ -21,22 +21,22 @@ setup() {
 	# verify all pods are available
 	run kubectl -n test-simple-v6-ingress wait --for=condition=ready -l app=test-simple-v6-ingress pod --timeout=${kubewait_timeout}
 	[ "$status" -eq  "0" ]
+
+	# wait for sync
+	sleep 5
 }
 
-# @test "check generated ip6tables rules" {
-# 	# wait for sync
-# 	sleep 5
-
-# 	# check pod-server has multi-networkpolicy ip6tables rules for ingress
-#         run kubectl -n test-simple-v6-ingress exec pod-server -- sh -c "ip6tables-save | grep MULTI-0-INGRESS"
-# 	[ "$status" -eq  "0" ]
-# 	# check pod-client-a has NO multi-networkpolicy ip6tables rules for ingress
-#         run kubectl -n test-simple-v6-ingress exec pod-client-a -- sh -c "ip6tables-save | grep MULTI-0-INGRESS"
-# 	[ "$status" -eq  "1" ]
-# 	# check pod-client-b has NO multi-networkpolicy ip6tables rules for ingress
-#         run kubectl -n test-simple-v6-ingress exec pod-client-b -- sh -c "ip6tables-save | grep MULTI-0-INGRESS"
-# 	[ "$status" -eq  "1" ]
-# }
+@test "check generated nft rules" {
+	# check pod-server has multi-networkpolicy ip6tables rules for ingress
+	run kubectl -n test-simple-v6-ingress exec pod-server -- sh -c "nft list ruleset | grep multi-ingress-0"
+	[ "$status" -eq  "0" ]
+	# check pod-client-a has NO multi-networkpolicy ip6tables rules for ingress
+	run kubectl -n test-simple-v6-ingress exec pod-client-a -- sh -c "nft list ruleset | grep multi-ingress-0"
+	[ "$status" -eq  "1" ]
+	# check pod-client-b has NO multi-networkpolicy ip6tables rules for ingress
+	run kubectl -n test-simple-v6-ingress exec pod-client-b -- sh -c "nft list ruleset | grep multi-ingress-0"
+	[ "$status" -eq  "1" ]
+}
 
 @test "test-simple-v6-ingress check client-a -> server" {
 	# nc should succeed from client-a to server by policy
@@ -62,21 +62,21 @@ setup() {
 	[ "$status" -eq  "0" ]
 }
 
-# @test "disable multi-networkpolicy and check ip6tables rules" {
-#  	# disable multi-networkpolicy pods by adding invalid nodeSelector
-# 	kubectl -n kube-system patch daemonsets multi-networkpolicy-ds-amd64 -p '{"spec": {"template": {"spec": {"nodeSelector": {"non-existing": "true"}}}}}'
-# 	# check multi-networkpolicy pod is deleted
-# 	kubectl -n kube-system wait --for=delete -l app=multi-networkpolicy pod --timeout=${kubewait_timeout}
+@test "disable multi-networkpolicy and check ip6tables rules" {
+ 	# disable multi-networkpolicy pods by adding invalid nodeSelector
+	kubectl -n kube-system patch daemonsets multi-networkpolicy-ds-amd64 -p '{"spec": {"template": {"spec": {"nodeSelector": {"non-existing": "true"}}}}}'
+	# check multi-networkpolicy pod is deleted
+	kubectl -n kube-system wait --for=delete -l app=multi-networkpolicy pod --timeout=${kubewait_timeout}
 
-# 	# check ip6table rules in pod-server
-# 	# run kubectl -n test-simple-v6-ingress exec pod-server -it -- sh -c "ip6tables-save | grep MULTI-0-INGRESS"
-# 	# [ "$status" -eq  "1" ]
+	# check nft rules in pod-server
+	run kubectl -n test-simple-v6-ingress exec pod-server -it -- sh -c "nft list ruleset | grep multi-ingress-0"
+	[ "$status" -eq  "1" ]
 
-# 	# enable multi-networkpolicy again
-# 	kubectl -n kube-system patch daemonsets multi-networkpolicy-ds-amd64 --type json -p='[{"op": "remove", "path": "/spec/template/spec/nodeSelector/non-existing"}]'
-# 	sleep 5
-# 	kubectl -n kube-system wait --for=condition=ready -l app=multi-networkpolicy pod --timeout=${kubewait_timeout}
-# }
+	# enable multi-networkpolicy again
+	kubectl -n kube-system patch daemonsets multi-networkpolicy-ds-amd64 --type json -p='[{"op": "remove", "path": "/spec/template/spec/nodeSelector/non-existing"}]'
+	sleep 5
+	kubectl -n kube-system wait --for=condition=ready -l app=multi-networkpolicy pod --timeout=${kubewait_timeout}
+}
 
 @test "cleanup environments" {
 	# remove test manifests

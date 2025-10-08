@@ -16,6 +16,8 @@ require (
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/pflag v1.0.6
 	github.com/vishvananda/netns v0.0.5
+	go4.org/netipx v0.0.0-20231129151722-fdeea329fbba
+	golang.org/x/net v0.44.0
 	golang.org/x/sys v0.28.0
 	google.golang.org/grpc v1.56.3
 	k8s.io/api v0.28.8
@@ -62,9 +64,7 @@ require (
 	github.com/prometheus/client_model v0.5.0 // indirect
 	github.com/prometheus/common v0.48.0 // indirect
 	github.com/prometheus/procfs v0.12.0 // indirect
-	go4.org/netipx v0.0.0-20231129151722-fdeea329fbba // indirect
 	golang.org/x/mod v0.14.0 // indirect
-	golang.org/x/net v0.41.0 // indirect
 	golang.org/x/oauth2 v0.16.0 // indirect
 	golang.org/x/sync v0.6.0 // indirect
 	golang.org/x/term v0.15.0 // indirect

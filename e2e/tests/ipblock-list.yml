@@ -3,11 +3,11 @@ apiVersion: "k8s.cni.cncf.io/v1"
 kind: NetworkAttachmentDefinition
 metadata:
   namespace: default
-  name: macvlan1-ipblock
+  name: macvlan1-ipblock-list
 spec:
   config: '{
             "cniVersion": "0.3.1",
-            "name": "macvlan1-ipblock",
+            "name": "macvlan1-ipblock-list",
             "plugins": [
                 {
                     "type": "macvlan",
@@ -32,7 +32,7 @@ metadata:
   namespace: test-ipblock-list
   annotations:
     k8s.v1.cni.cncf.io/networks: '[{
-      "name": "macvlan1-ipblock",
+      "name": "macvlan1-ipblock-list",
       "namespace": "default",
       "ips": ["2.2.5.1/24"]
       }]'
@@ -54,7 +54,7 @@ metadata:
   namespace: test-ipblock-list
   annotations:
     k8s.v1.cni.cncf.io/networks: '[{
-      "name": "macvlan1-ipblock",
+      "name": "macvlan1-ipblock-list",
       "namespace": "default",
       "ips": ["2.2.5.11/24"]
       }]'
@@ -76,7 +76,7 @@ metadata:
   namespace: test-ipblock-list
   annotations:
     k8s.v1.cni.cncf.io/networks: '[{
-      "name": "macvlan1-ipblock",
+      "name": "macvlan1-ipblock-list",
       "namespace": "default",
       "ips": ["2.2.5.12/24"]
       }]'
@@ -98,7 +98,7 @@ metadata:
   namespace: test-ipblock-list
   annotations:
     k8s.v1.cni.cncf.io/networks: '[{
-      "name": "macvlan1-ipblock",
+      "name": "macvlan1-ipblock-list",
       "namespace": "default",
       "ips": ["2.2.5.13/24"]
       }]'
@@ -124,7 +124,7 @@ metadata:
   name: testnetwork-policy-ipblock-1
   namespace: test-ipblock-list
   annotations:
-    k8s.v1.cni.cncf.io/policy-for: default/macvlan1-ipblock
+    k8s.v1.cni.cncf.io/policy-for: default/macvlan1-ipblock-list
 spec:
   podSelector:
     matchLabels:

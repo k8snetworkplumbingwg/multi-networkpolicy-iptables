@@ -47,6 +47,8 @@ func TestBootstrap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bootstrapNetfilterRules() failed: %v", err)
 	}
+	c.Flush()
+
 	checkForBootstrap := func() bool {
 
 		filterTable, err := c.ListTableOfFamily("filter", nftables.TableFamilyINet)
@@ -156,6 +158,8 @@ func TestApplyCommonChainRules(t *testing.T) {
 	if err != nil {
 		t.Fatalf("applyCommonChainRules() failed: %v", err)
 	}
+	c.Flush()
+
 	checkCommon := func() bool {
 		filterTable, err := c.ListTableOfFamily(nftState.filter.Name, nftables.TableFamilyINet)
 		if err != nil {

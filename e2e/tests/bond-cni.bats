@@ -45,6 +45,4 @@ setup() {
 	kubectl delete -f bond-cni.yml
 	run kubectl -n bond-testing wait --for=delete -l app=bond-testing pod --timeout=${kubewait_timeout}
 	[ "$status" -eq  "0" ]
-
-	sleep 5
 }

@@ -20,21 +20,22 @@ setup() {
 	# verify all pods are available
 	run kubectl -n test-simple-v4-egress wait --for=condition=ready -l app=test-simple-v4-egress pod --timeout=${kubewait_timeout}
 	[ "$status" -eq  "0" ]
+
+	# wait for sync
+	sleep 5
 }
 
-#@test "check generated iptables rules" {
-#	# wait for sync
-#	sleep 5
-#	# check pod-server has multi-networkpolicy iptables rules for ingress
-#        run kubectl -n test-simple-v4-egress exec pod-server -- sh -c "iptables-save | grep MULTI-0-EGRESS"
-#	[ "$status" -eq  "0" ]
-#	# check pod-client-a has NO multi-networkpolicy iptables rules for ingress
-#        run kubectl -n test-simple-v4-egress exec pod-client-a -- sh -c "iptables-save | grep MULTI-0-EGRESS"
-#	[ "$status" -eq  "1" ]
-#	# check pod-client-b has NO multi-networkpolicy iptables rules for ingress
-#        run kubectl -n test-simple-v4-egress exec pod-client-b -- sh -c "iptables-save | grep MULTI-0-EGRESS"
-#	[ "$status" -eq  "1" ]
-#}
+@test "check generated nft rules" {
+	# check pod-server has multi-networkpolicy iptables rules for ingress
+	run kubectl -n test-simple-v4-egress exec pod-server -- sh -c "nft list ruleset | grep multi-egress-0"
+	[ "$status" -eq  "0" ]
+	# check pod-client-a has NO multi-networkpolicy iptables rules for ingress
+	run kubectl -n test-simple-v4-egress exec pod-client-a -- sh -c "nft list ruleset | grep multi-egress-0"
+	[ "$status" -eq  "1" ]
+	# check pod-client-b has NO multi-networkpolicy iptables rules for ingress
+	run kubectl -n test-simple-v4-egress exec pod-client-b -- sh -c "nft list ruleset | grep multi-egress-0"
+	[ "$status" -eq  "1" ]
+}
 
 @test "test-simple-v4-egress check client-a -> server" {
 	# nc should succeed from client-a to server by no policy definition for the direction
@@ -66,9 +67,9 @@ setup() {
 	# check multi-networkpolicy pod is deleted
 	kubectl -n kube-system wait --for=delete -l app=multi-networkpolicy pod --timeout=${kubewait_timeout}
 
-	# check iptable rules in pod-server
-    #    run kubectl -n test-simple-v4-egress exec pod-server -it -- sh -c "iptables-save | grep MULTI-0-INGRESS"
-	#[ "$status" -eq  "1" ]
+	# check nft rules in pod-server
+	run kubectl -n test-simple-v4-egress exec pod-server -it -- sh -c "nft list ruleset | grep multi-egress-0"
+	[ "$status" -eq  "1" ]
 
 	# enable multi-networkpolicy again
 	kubectl -n kube-system patch daemonsets multi-networkpolicy-ds-amd64 --type json -p='[{"op": "remove", "path": "/spec/template/spec/nodeSelector/non-existing"}]'
@@ -77,7 +78,6 @@ setup() {
 }
 
 @test "cleanup environments" {
-	# remove test manifests
 	kubectl delete -f simple-v4-egress.yml
 	run kubectl -n test-simple-v4-egress wait --for=delete -l app=test-simple-v4-egress pod --timeout=${kubewait_timeout}
 	[ "$status" -eq  "0" ]

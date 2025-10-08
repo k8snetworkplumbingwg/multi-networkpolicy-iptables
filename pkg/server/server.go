@@ -517,13 +517,8 @@ func (s *Server) applyPolicyRulesForPod(pod *v1.Pod, podInfo *controllers.PodInf
 
 func (s *Server) applyPolicyRulesForPodAndFamily(pod *v1.Pod, podInfo *controllers.PodInfo, nft *nftables.Conn) error {
 	klog.V(4).Infof("Generate rules for Pod: [%s]\n", podNamespacedName(pod))
+
 	// nft add table inet filter
-
-	nft.FlushRuleset()
-	if err := nft.Flush(); err != nil {
-		klog.Errorf("failed to remove old rules: %s", err.Error())
-	}
-
 	nftState, err := bootstrapNetfilterRules(nft, podInfo)
 	if err != nil {
 		return fmt.Errorf("bootstrap netfilter rules failed for pod [%s]: %w", podNamespacedName(pod), err)
@@ -596,21 +591,34 @@ func (s *Server) applyPolicyRulesForPodAndFamily(pod *v1.Pod, podInfo *controlle
 
 	if len(ingressPolicies) > 0 {
 		for idx, policy := range ingressPolicies {
-			nftState.applyPodRules(s, nftState.ingressChain, podInfo, idx, policy.policy, policy.policyNetworks)
+			if err := nftState.applyPodRules(s, nftState.ingressChain, podInfo, idx, policy.policy, policy.policyNetworks); err != nil {
+				klog.Errorf("failed to apply pod ingress rules: %v", err)
+			}
 		}
-		nftState.applyDropRemaining(nftState.ingressChain)
+		if err := nftState.applyDropRemaining(nftState.ingressChain); err != nil {
+			klog.Errorf("failed to apply drop remaining ingress rules: %v", err)
+		}
 	}
 
 	if len(egressPolicies) > 0 {
 		for idx, policy := range egressPolicies {
-			nftState.applyPodRules(s, nftState.egressChain, podInfo, idx, policy.policy, policy.policyNetworks)
+			if err := nftState.applyPodRules(s, nftState.egressChain, podInfo, idx, policy.policy, policy.policyNetworks); err != nil {
+				klog.Errorf("failed to apply pod egress rules: %v", err)
+			}
 		}
-		nftState.applyDropRemaining(nftState.egressChain)
+		if err := nftState.applyDropRemaining(nftState.egressChain); err != nil {
+			klog.Errorf("failed to apply drop remaining egress rules: %v", err)
+		}
+	}
+
+	if err := nftState.cleanup(); err != nil {
+		return fmt.Errorf("failed to cleanup nft: %w", err)
 	}
 
 	if err := nftState.nft.Flush(); err != nil {
 		return fmt.Errorf("nft flush failed for pod [%s]: %w", podNamespacedName(pod), err)
 	}
+
 	return nil
 }
 

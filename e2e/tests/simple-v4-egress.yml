@@ -3,11 +3,11 @@ apiVersion: "k8s.cni.cncf.io/v1"
 kind: NetworkAttachmentDefinition
 metadata:
   namespace: default
-  name: macvlan1-simple
+  name: macvlan1-v4-egress
 spec: 
   config: '{
             "cniVersion": "0.3.1",
-            "name": "macvlan1-simple",
+            "name": "macvlan1-v4-egress",
             "plugins": [
                 {
                     "type": "macvlan",
@@ -34,7 +34,7 @@ metadata:
   name: pod-server
   namespace: test-simple-v4-egress
   annotations:
-    k8s.v1.cni.cncf.io/networks: default/macvlan1-simple
+    k8s.v1.cni.cncf.io/networks: default/macvlan1-v4-egress
   labels:
     app: test-simple-v4-egress
     name: pod-server
@@ -52,7 +52,7 @@ metadata:
   name: pod-client-a
   namespace: test-simple-v4-egress
   annotations:
-    k8s.v1.cni.cncf.io/networks: default/macvlan1-simple
+    k8s.v1.cni.cncf.io/networks: default/macvlan1-v4-egress
   labels:
     app: test-simple-v4-egress
     name: pod-client-a
@@ -70,7 +70,7 @@ metadata:
   name: pod-client-b
   namespace: test-simple-v4-egress
   annotations:
-    k8s.v1.cni.cncf.io/networks: default/macvlan1-simple
+    k8s.v1.cni.cncf.io/networks: default/macvlan1-v4-egress
   labels:
     app: test-simple-v4-egress
     name: pod-client-b
@@ -90,7 +90,7 @@ metadata:
   name: test-multinetwork-policy-simple-1
   namespace: test-simple-v4-egress
   annotations:
-    k8s.v1.cni.cncf.io/policy-for: default/macvlan1-simple
+    k8s.v1.cni.cncf.io/policy-for: default/macvlan1-v4-egress
 spec:
   podSelector:
     matchLabels:

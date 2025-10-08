@@ -3,11 +3,11 @@ apiVersion: "k8s.cni.cncf.io/v1"
 kind: NetworkAttachmentDefinition
 metadata:
   namespace: default
-  name: macvlan1-simple
+  name: macvlan1-only-ports
 spec: 
   config: '{
             "cniVersion": "0.3.1",
-            "name": "macvlan1-simple",
+            "name": "macvlan1-only-ports",
             "plugins": [
                 {
                     "type": "macvlan",
@@ -34,7 +34,7 @@ metadata:
   name: pod-a
   namespace: test-protocol-only-ports
   annotations:
-    k8s.v1.cni.cncf.io/networks: default/macvlan1-simple
+    k8s.v1.cni.cncf.io/networks: default/macvlan1-only-ports
   labels:
     app: test-protocol-only-ports
     name: pod-a
@@ -57,7 +57,7 @@ metadata:
   name: pod-b
   namespace: test-protocol-only-ports
   annotations:
-    k8s.v1.cni.cncf.io/networks: default/macvlan1-simple
+    k8s.v1.cni.cncf.io/networks: default/macvlan1-only-ports
   labels:
     app: test-protocol-only-ports
     name: pod-b
@@ -81,7 +81,7 @@ metadata:
   name: test-multinetwork-policy-simple-1
   namespace: test-protocol-only-ports
   annotations:
-    k8s.v1.cni.cncf.io/policy-for: default/macvlan1-simple
+    k8s.v1.cni.cncf.io/policy-for: default/macvlan1-only-ports
 spec:
   podSelector:
     matchLabels:
