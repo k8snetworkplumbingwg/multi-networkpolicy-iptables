@@ -1,0 +1,235 @@
+# ┌───────────┐   ┌───────────┐   ┌───────────┐
+# │namespace-a│   │namespace-b│   │namespace-c│
+# │           │   │           │   │           │
+# │ ┌───────┐ │   │ ┌───────┐ │   │ ┌───────┐ │
+# │ │ pod-1 │◀─────│ pod-1 │ │   │ │ pod-1 │ │
+# │ └───────┘────┐│ └───────┘ │   │ └───────┘ │
+# │ ┌───────┐ │  ││ ┌───────┐ │   │ ┌───────┐ │
+# │ │ pod-2 │ │  └─▶ pod-2 │ │   │ │ pod-2 │ │
+# │ └───────┘ │   │ └───────┘ │   │ └───────┘ │
+# └───────────┘   └───────────┘   └───────────┘
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+    name: test-namespace-a
+    labels:
+      name: test-namespace-a
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+    name: test-namespace-b
+    labels:
+      name: test-namespace-b
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+    name: test-namespace-c
+    labels:
+      name: test-namespace-c
+---
+apiVersion: "k8s.cni.cncf.io/v1"
+kind: NetworkAttachmentDefinition
+metadata:
+  namespace: test-namespace-a
+  name: macvlan1-namespace-a
+spec: 
+  config: '{
+            "cniVersion": "0.3.1",
+            "name": "macvlan1-namespace-a",
+            "plugins": [
+                {
+                    "type": "macvlan",
+                    "mode": "bridge",
+                    "ipam":{
+                      "type":"host-local",
+                      "subnet":"2.2.10.0/24",
+                      "rangeStart":"2.2.10.10",
+                      "rangeEnd":"2.2.10.19"
+                    }
+                }]
+        }'
+---
+apiVersion: "k8s.cni.cncf.io/v1"
+kind: NetworkAttachmentDefinition
+metadata:
+  namespace: test-namespace-b
+  name: macvlan1-namespace-b
+spec: 
+  config: '{
+            "cniVersion": "0.3.1",
+            "name": "macvlan1-namespace-b",
+            "plugins": [
+                {
+                    "type": "macvlan",
+                    "mode": "bridge",
+                    "ipam":{
+                      "type":"host-local",
+                      "subnet":"2.2.10.0/24",
+                      "rangeStart":"2.2.10.20",
+                      "rangeEnd":"2.2.10.29"
+                    }
+                }]
+        }'
+---
+apiVersion: "k8s.cni.cncf.io/v1"
+kind: NetworkAttachmentDefinition
+metadata:
+  namespace: test-namespace-c
+  name: macvlan1-namespace-c
+spec: 
+  config: '{
+            "cniVersion": "0.3.1",
+            "name": "macvlan1-namespace-c",
+            "plugins": [
+                {
+                    "type": "macvlan",
+                    "mode": "bridge",
+                    "ipam":{
+                      "type":"host-local",
+                      "subnet":"2.2.10.0/24",
+                      "rangeStart":"2.2.10.30",
+                      "rangeEnd":"2.2.10.39"
+                    }
+                }]
+        }'
+---
+
+
+# Pods in namespace A
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-1
+  namespace: test-namespace-a
+  annotations:
+    k8s.v1.cni.cncf.io/networks: macvlan1-namespace-a
+  labels:
+    name: pod-1
+spec:
+  containers:
+  - name: macvlan-worker1
+    image: ghcr.io/k8snetworkplumbingwg/multi-networkpolicy-iptables:e2e-test
+    command: ["nc", "-klp", "5555"]
+    securityContext:
+      privileged: true
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-2
+  namespace: test-namespace-a
+  annotations:
+    k8s.v1.cni.cncf.io/networks: macvlan1-namespace-a
+  labels:
+    name: pod-2
+spec:
+  containers:
+  - name: macvlan-worker1
+    image: ghcr.io/k8snetworkplumbingwg/multi-networkpolicy-iptables:e2e-test
+    command: ["nc", "-klp", "5555"]
+    securityContext:
+      privileged: true
+---
+# Pods in namespace B
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-1
+  namespace: test-namespace-b
+  annotations:
+    k8s.v1.cni.cncf.io/networks: macvlan1-namespace-b
+  labels:
+    name: pod-1
+spec:
+  containers:
+  - name: macvlan-worker1
+    image: ghcr.io/k8snetworkplumbingwg/multi-networkpolicy-iptables:e2e-test
+    command: ["nc", "-klp", "5555"]
+    securityContext:
+      privileged: true
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-2
+  namespace: test-namespace-b
+  annotations:
+    k8s.v1.cni.cncf.io/networks: macvlan1-namespace-b
+  labels:
+    name: pod-2
+spec:
+  containers:
+  - name: macvlan-worker1
+    image: ghcr.io/k8snetworkplumbingwg/multi-networkpolicy-iptables:e2e-test
+    command: ["nc", "-klp", "5555"]
+    securityContext:
+      privileged: true
+---
+# Pods in namespace C
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-1
+  namespace: test-namespace-c
+  annotations:
+    k8s.v1.cni.cncf.io/networks: macvlan1-namespace-c
+  labels:
+    name: pod-1
+spec:
+  containers:
+  - name: macvlan-worker1
+    image: ghcr.io/k8snetworkplumbingwg/multi-networkpolicy-iptables:e2e-test
+    command: ["nc", "-klp", "5555"]
+    securityContext:
+      privileged: true
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-2
+  namespace: test-namespace-c
+  annotations:
+    k8s.v1.cni.cncf.io/networks: macvlan1-namespace-c
+  labels:
+    name: pod-2
+spec:
+  containers:
+  - name: macvlan-worker1
+    image: ghcr.io/k8snetworkplumbingwg/multi-networkpolicy-iptables:e2e-test
+    command: ["nc", "-klp", "5555"]
+    securityContext:
+      privileged: true
+---
+apiVersion: k8s.cni.cncf.io/v1beta1
+kind: MultiNetworkPolicy
+metadata:
+  name: test-multinetwork-policy-namespace-a
+  namespace: test-namespace-a
+  annotations:
+    k8s.v1.cni.cncf.io/policy-for: test-namespace-a/macvlan1-namespace-a,test-namespace-b/macvlan1-namespace-b,test-namespace-c/macvlan1-namespace-c
+spec:
+  podSelector:
+    matchLabels:
+      name: pod-1
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          name: pod-1
+      namespaceSelector:
+        matchLabels:
+          name: test-namespace-b
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          name: pod-2
+      namespaceSelector:
+        matchLabels:
+          name: test-namespace-b
+  policyTypes:
+  - Ingress
+  - Egress

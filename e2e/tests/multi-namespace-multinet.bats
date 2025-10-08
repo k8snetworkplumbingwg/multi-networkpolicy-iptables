@@ -1,0 +1,116 @@
+#!/usr/bin/env bats
+
+# Note:
+# This test case creates two namespaces, each with a different NetworkAttachmentDefinition
+# and two pods per namespace. It tests that MultiNetworkPolicy works correctly across
+# different namespaces with different network configurations.
+
+setup() {
+	cd $BATS_TEST_DIRNAME
+	load "common"
+	pod_a1_net1=$(get_net1_ip "test-namespace-a" "pod-1")
+	pod_a2_net1=$(get_net1_ip "test-namespace-a" "pod-2")
+
+	pod_b1_net1=$(get_net1_ip "test-namespace-b" "pod-1")
+	pod_b2_net1=$(get_net1_ip "test-namespace-b" "pod-2")
+
+	pod_c1_net1=$(get_net1_ip "test-namespace-c" "pod-1")
+	pod_c2_net1=$(get_net1_ip "test-namespace-c" "pod-2")
+
+}
+
+@test "setup multi-namespace test environments" {
+	# create test manifests
+	kubectl create -f multi-namespace-multinet.yml
+
+	# verify all pods in namespace A are available
+	run kubectl -n test-namespace-a wait --all --for=condition=ready pod --timeout=${kubewait_timeout}
+	[ "$status" -eq  "0" ]
+	
+	# verify all pods in namespace B are available
+	run kubectl -n test-namespace-b wait --all --for=condition=ready pod --timeout=${kubewait_timeout}
+	[ "$status" -eq  "0" ]
+
+	# wait for the iptables to be synced
+	sleep 3
+}
+
+@test "Allowed connectivity" {
+	run kubectl -n test-namespace-b exec pod-1 -- sh -c "echo x | nc -w 1 ${pod_a1_net1} 5555"
+	[ "$status" -eq  "0" ]
+
+	run kubectl -n test-namespace-a exec pod-1 -- sh -c "echo x | nc -w 1 ${pod_b2_net1} 5555"
+	[ "$status" -eq  "0" ]
+}
+
+@test "Denied connectivity" {
+	# a1 -> {a2,b1,c1,c2}
+	run kubectl -n test-namespace-a exec pod-1 -- sh -c "echo x | nc -w 1 ${pod_a2_net1} 5555"
+	[ "$status" -eq  "1" ]
+	
+	run kubectl -n test-namespace-a exec pod-1 -- sh -c "echo x | nc -w 1 ${pod_b1_net1} 5555"
+	[ "$status" -eq  "1" ]
+
+	run kubectl -n test-namespace-a exec pod-1 -- sh -c "echo x | nc -w 1 ${pod_c1_net1} 5555"
+	[ "$status" -eq  "1" ]
+	
+	run kubectl -n test-namespace-a exec pod-1 -- sh -c "echo x | nc -w 1 ${pod_c2_net1} 5555"
+	[ "$status" -eq  "1" ]
+
+    # {a2,b2,c1,c2} -> a1
+	run kubectl -n test-namespace-a exec pod-2 -- sh -c "echo x | nc -w 1 ${pod_a1_net1} 5555"
+	[ "$status" -eq  "1" ]
+
+	run kubectl -n test-namespace-b exec pod-2 -- sh -c "echo x | nc -w 1 ${pod_a1_net1} 5555"
+	[ "$status" -eq  "1" ]
+
+	run kubectl -n test-namespace-c exec pod-1 -- sh -c "echo x | nc -w 1 ${pod_a1_net1} 5555"
+	[ "$status" -eq  "1" ]
+
+	run kubectl -n test-namespace-c exec pod-2 -- sh -c "echo x | nc -w 1 ${pod_a1_net1} 5555"
+	[ "$status" -eq  "1" ]
+}
+
+@test "Allowed by policy absence" {
+	# a2 -> {b1,b2,c1,c2}
+	run kubectl -n test-namespace-a exec pod-2 -- sh -c "echo x | nc -w 1 ${pod_b1_net1} 5555"
+	[ "$status" -eq  "0" ]
+
+	run kubectl -n test-namespace-a exec pod-2 -- sh -c "echo x | nc -w 1 ${pod_b2_net1} 5555"
+	[ "$status" -eq  "0" ]
+
+	run kubectl -n test-namespace-a exec pod-2 -- sh -c "echo x | nc -w 1 ${pod_c1_net1} 5555"
+	[ "$status" -eq  "0" ]
+
+	run kubectl -n test-namespace-a exec pod-2 -- sh -c "echo x | nc -w 1 ${pod_c2_net1} 5555"
+	[ "$status" -eq  "0" ]
+
+	# b1 -> {a2,b2,c1,c2}
+	run kubectl -n test-namespace-b exec pod-1 -- sh -c "echo x | nc -w 1 ${pod_a2_net1} 5555"
+	[ "$status" -eq  "0" ]
+	
+	run kubectl -n test-namespace-b exec pod-1 -- sh -c "echo x | nc -w 1 ${pod_b2_net1} 5555"
+	[ "$status" -eq  "0" ]
+
+	run kubectl -n test-namespace-b exec pod-1 -- sh -c "echo x | nc -w 1 ${pod_c1_net1} 5555"
+	[ "$status" -eq  "0" ]
+
+	run kubectl -n test-namespace-b exec pod-1 -- sh -c "echo x | nc -w 1 ${pod_c2_net1} 5555"
+	[ "$status" -eq  "0" ]
+}
+
+@test "cleanup environments" {
+	# remove test manifests
+	kubectl delete -f multi-namespace-multinet.yml
+	run kubectl -n test-namespace-a wait --all --for=delete pod --timeout=${kubewait_timeout}
+	[ "$status" -eq  "0" ]
+	run kubectl -n test-namespace-b wait --all --for=delete pod --timeout=${kubewait_timeout}
+	[ "$status" -eq  "0" ]
+
+	sleep 5
+	# check that no iptables files in pod-iptables
+	pod_name=$(kubectl -n kube-system get pod -o wide | grep 'kind-worker' | grep multi-net | cut -f 1 -d ' ')
+	run kubectl -n kube-system exec ${pod_name} -- \
+		sh -c "find /var/lib/multi-networkpolicy/iptables/ -name '*.iptables' | wc -l"
+        [ "$output" = "0" ]
+}
