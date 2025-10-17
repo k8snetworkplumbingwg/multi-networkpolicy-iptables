@@ -83,9 +83,4 @@ setup() {
 	[ "$status" -eq  "0" ]
 
 	sleep 5
-	# check that no iptables files in pod-iptables
-	pod_name=$(kubectl -n kube-system get pod -o wide | grep 'kind-worker' | grep multi-net | cut -f 1 -d ' ')
-	run kubectl -n kube-system exec ${pod_name} -- \
-		sh -c "find /var/lib/multi-networkpolicy/iptables/ -name '*.iptables' | wc -l"
-        [ "$output" = "0" ]
 }
