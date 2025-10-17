@@ -31,6 +31,7 @@ import (
 	netdefutils "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/utils"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -58,7 +59,7 @@ func (rk *RuntimeKind) Set(s string) error {
 		*rk = RuntimeKind(runtime)
 		return nil
 	}
-	return fmt.Errorf("Invalid container-runtime option %s (possible values: \"cri\")", s)
+	return fmt.Errorf("invalid container-runtime option %q (possible values: \"cri\")", s)
 }
 
 // String returns current runtime kind
@@ -100,7 +101,7 @@ func NewPodConfig(podInformer coreinformers.PodInformer, resyncPeriod time.Durat
 		listerSynced: podInformer.Informer().HasSynced,
 	}
 
-	podInformer.Informer().AddEventHandlerWithResyncPeriod(
+	_, err := podInformer.Informer().AddEventHandlerWithResyncPeriod(
 		cache.ResourceEventHandlerFuncs{
 			AddFunc:    result.handleAddPod,
 			UpdateFunc: result.handleUpdatePod,
@@ -108,6 +109,9 @@ func NewPodConfig(podInformer coreinformers.PodInformer, resyncPeriod time.Durat
 		},
 		resyncPeriod,
 	)
+	if err != nil {
+		utilruntime.HandleError(fmt.Errorf("cannot add pod informer event handler: %v", err))
+	}
 	return result
 }
 
@@ -267,18 +271,18 @@ func (pct *PodChangeTracker) getPodNetNSPath(pod *v1.Pod) (string, error) {
 	netnsPath := ""
 
 	if pod.Status.Phase != v1.PodRunning {
-		return "", fmt.Errorf("Pod is not running")
+		return "", fmt.Errorf("pod is not running")
 	}
 
 	// get Container netns
 	procPrefix := ""
 	if len(pod.Status.ContainerStatuses) == 0 {
-		return "", fmt.Errorf("No container status")
+		return "", fmt.Errorf("no container status")
 	}
 
 	containerURI := strings.Split(pod.Status.ContainerStatuses[0].ContainerID, "://")
 	if len(containerURI) < 2 {
-		return "", fmt.Errorf("No container ID (%s)", pod.Status.ContainerStatuses[0].ContainerID)
+		return "", fmt.Errorf("no container ID (%s)", pod.Status.ContainerStatuses[0].ContainerID)
 	}
 
 	runtimeKind := containerURI[0]
@@ -300,7 +304,10 @@ func (pct *PodChangeTracker) getPodNetNSPath(pod *v1.Pod) (string, error) {
 
 			info := r.GetInfo()
 			var infop interface{}
-			json.Unmarshal([]byte(info["info"]), &infop)
+			err = json.Unmarshal([]byte(info["info"]), &infop)
+			if err != nil {
+				return "", fmt.Errorf("cannot unmarshal containerStatus info: %v", err)
+			}
 			pid, ok := infop.(map[string]interface{})["pid"].(float64)
 			if !ok {
 				return "", fmt.Errorf("cannot get pid from containerStatus info")
@@ -380,7 +387,7 @@ func (pct *PodChangeTracker) newPodInfo(pod *v1.Pod) (*PodInfo, error) {
 				netNamespace = strings.TrimSpace(slashItems[0])
 				netName = slashItems[1]
 			} else {
-				netNamespace = pod.ObjectMeta.Namespace
+				netNamespace = pod.Namespace
 				netName = s.Name
 			}
 			namespacedName := types.NamespacedName{Namespace: netNamespace, Name: netName}
@@ -397,7 +404,7 @@ func (pct *PodChangeTracker) newPodInfo(pod *v1.Pod) (*PodInfo, error) {
 			}
 		}
 
-		klog.V(6).Infof("Pod: %s/%s netns:%s netIF:%v", pod.ObjectMeta.Namespace, pod.ObjectMeta.Name, netnsPath, netifs)
+		klog.V(6).Infof("Pod: %s/%s netns:%s netIF:%v", pod.Namespace, pod.Name, netnsPath, netifs)
 	} else {
 		klog.V(1).Infof("Pod:%s/%s %s/%s, not ready", pod.Namespace, pod.Name, pct.hostname, pod.Spec.NodeName)
 	}
@@ -407,8 +414,8 @@ func (pct *PodChangeTracker) newPodInfo(pod *v1.Pod) (*PodInfo, error) {
 	})
 
 	info := &PodInfo{
-		Name:          pod.ObjectMeta.Name,
-		Namespace:     pod.ObjectMeta.Namespace,
+		Name:          pod.Name,
+		Namespace:     pod.Namespace,
 		NetworkStatus: statuses,
 		NetNSPath:     netnsPath,
 		NodeName:      pod.Spec.NodeName,
@@ -518,7 +525,6 @@ func (pm *PodMap) apply(changes *PodChangeTracker) {
 	}
 	// clear changes after applying them to ServiceMap.
 	changes.items = make(map[types.NamespacedName]*podChange)
-	return
 }
 
 func (pm *PodMap) merge(other PodMap) {
@@ -555,8 +561,9 @@ func getRuntimeClientConnection(runtimeEndpoint, hostPrefix string) (*grpc.Clien
 		return nil, err
 	}
 
-	Timeout := 10 * time.Second
-	conn, err := grpc.Dial(addr, grpc.WithInsecure(), grpc.WithBlock(), grpc.WithTimeout(Timeout), grpc.WithContextDialer(dialer))
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	conn, err := grpc.DialContext(ctx, addr, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithBlock(), grpc.WithContextDialer(dialer))
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to %s, make sure you are running as root and the runtime has been started: %v", HostRuntimeEndpoint, err)
 	}

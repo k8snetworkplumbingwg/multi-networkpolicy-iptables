@@ -25,6 +25,17 @@ const (
 	// peersChainSuffix is the suffix for the peers chains
 	peersChainSuffix = "peers"
 
+	//
+	peerIPBlockExceptPrefix = "peer_ipblock_except"
+	peerIPBlockPrefix       = "peer_ipblock"
+
+	// protoIPv4 is the user-readable name for IPv4 sets and chains in nftables
+	protoIPv4 = "ipv4"
+	// protoIPv6 is the user-readable name for IPv6 sets and chains in nftables
+	protoIPv6 = "ipv6"
+
+	allowConntrackRuleName = "allow-conntracked"
+
 	common                   = "common"
 	destinationAddressSuffix = "daddrs"
 	sourceAddressSuffix      = "saddrs"

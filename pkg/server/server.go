@@ -484,7 +484,12 @@ func (s *Server) syncMultiPolicy() {
 				klog.Errorf("cannot get pod (%s/%s:%s) netns (%s): %v", p.Namespace, p.Name, p.Status.Phase, netnsPath, err)
 				continue
 			}
-			defer netns.Close()
+			defer func() {
+				err := netns.Close()
+				if err != nil {
+					klog.Errorf("cannot close pod (%s/%s:%s) netns (%s): %v", p.Namespace, p.Name, p.Status.Phase, netnsPath, err)
+				}
+			}()
 
 			klog.V(8).Infof("pod: %s/%s %s", p.Namespace, p.Name, netnsPath)
 			err = s.applyPolicyRulesForPod(p, podInfo, netns)
@@ -499,11 +504,11 @@ func (s *Server) syncMultiPolicy() {
 
 func (s *Server) applyPolicyRulesForPod(pod *v1.Pod, podInfo *controllers.PodInfo, netNs ns.NetNS) error {
 	nft, err := nftables.New(nftables.WithNetNSFd(int(netNs.Fd())), nftables.AsLasting())
-	defer func() error {
+	var closeErr error
+	defer func() {
 		if err := nft.CloseLasting(); err != nil {
-			return fmt.Errorf("closing lasting netlink connection failed for pod [%s]: %w", podNamespacedName(pod), err)
+			closeErr = fmt.Errorf("closing lasting netlink connection failed for pod [%s]: %w", podNamespacedName(pod), err)
 		}
-		return nil
 	}()
 	if err != nil {
 		return fmt.Errorf("failed to open nftables: %v", err)
@@ -512,7 +517,7 @@ func (s *Server) applyPolicyRulesForPod(pod *v1.Pod, podInfo *controllers.PodInf
 	if err != nil {
 		return fmt.Errorf("can't apply nftables inet rules for pod [%s]: %w", podNamespacedName(pod), err)
 	}
-	return nil
+	return closeErr
 }
 
 func (s *Server) applyPolicyRulesForPodAndFamily(pod *v1.Pod, podInfo *controllers.PodInfo, nft *nftables.Conn) error {
@@ -579,7 +584,10 @@ func (s *Server) applyPolicyRulesForPodAndFamily(pod *v1.Pod, podInfo *controlle
 		}
 	}
 
-	nftState.applyCommonChainRules(s)
+	err = nftState.applyCommonChainRules(s)
+	if err != nil {
+		return fmt.Errorf("failed to apply common chain rules for pod [%s]: %w", podNamespacedName(pod), err)
+	}
 
 	// Stable sort by policy name
 	slices.SortFunc(ingressPolicies, func(a, b internalPolicy) int {

@@ -194,8 +194,8 @@ func TestApplyCommonChainRules(t *testing.T) {
 			t.Fatalf("c.GetSets(%q) failed: %v", filterTable.Name, err)
 		}
 		for _, set := range sets {
-			if set.Name == fmt.Sprintf("%s_v4_%s", common, sourceAddressSuffix) || set.Name == fmt.Sprintf("%s_v4_%s", common, destinationAddressSuffix) ||
-				set.Name == fmt.Sprintf("%s_v6_%s", common, sourceAddressSuffix) || set.Name == fmt.Sprintf("%s_v6_%s", common, destinationAddressSuffix) {
+			if set.Name == fmt.Sprintf("%s_%s_%s", common, protoIPv4, sourceAddressSuffix) || set.Name == fmt.Sprintf("%s_%s_%s", common, protoIPv4, destinationAddressSuffix) ||
+				set.Name == fmt.Sprintf("%s_%s_%s", common, protoIPv6, sourceAddressSuffix) || set.Name == fmt.Sprintf("%s_%s_%s", common, protoIPv6, destinationAddressSuffix) {
 				if set.Table.Name != filterTable.Name {
 					t.Errorf("set %q is not in table %q", set.Name, filterTable.Name)
 				}

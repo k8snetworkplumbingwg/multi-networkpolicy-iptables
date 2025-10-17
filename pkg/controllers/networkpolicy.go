@@ -60,13 +60,16 @@ func NewNetworkPolicyConfig(policyInformer multiinformerv1beta1.MultiNetworkPoli
 		listerSynced: policyInformer.Informer().HasSynced,
 	}
 
-	policyInformer.Informer().AddEventHandlerWithResyncPeriod(
+	_, err := policyInformer.Informer().AddEventHandlerWithResyncPeriod(
 		cache.ResourceEventHandlerFuncs{
 			AddFunc:    result.handleAddPolicy,
 			UpdateFunc: result.handleUpdatePolicy,
 			DeleteFunc: result.handleDeletePolicy,
 		}, resyncPeriod,
 	)
+	if err != nil {
+		utilruntime.HandleError(fmt.Errorf("cannot add multi-networkpolicy informer event handler: %v", err))
+	}
 
 	return result
 }
@@ -145,12 +148,12 @@ type PolicyInfo struct {
 
 // Name ...
 func (info *PolicyInfo) Name() string {
-	return info.Policy.ObjectMeta.Name
+	return info.Policy.Name
 }
 
 // Namespace ...
 func (info *PolicyInfo) Namespace() string {
-	return info.Policy.ObjectMeta.Namespace
+	return info.Policy.Namespace
 }
 
 // PolicyMap ...
@@ -176,7 +179,6 @@ func (pm *PolicyMap) apply(changes *PolicyChangeTracker) {
 	}
 	// clear changes after applying them to ServiceMap.
 	changes.items = make(map[types.NamespacedName]*policyChange)
-	return
 }
 
 func (pm *PolicyMap) merge(other PolicyMap) {

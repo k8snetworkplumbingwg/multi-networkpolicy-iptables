@@ -63,13 +63,16 @@ func NewNetDefConfig(netdefInformer netdefinformerv1.NetworkAttachmentDefinition
 		listerSynced: netdefInformer.Informer().HasSynced,
 	}
 
-	netdefInformer.Informer().AddEventHandlerWithResyncPeriod(
+	_, err := netdefInformer.Informer().AddEventHandlerWithResyncPeriod(
 		cache.ResourceEventHandlerFuncs{
 			AddFunc:    result.handleAddNetDef,
 			UpdateFunc: result.handleUpdateNetDef,
 			DeleteFunc: result.handleDeleteNetDef,
 		}, resyncPeriod,
 	)
+	if err != nil {
+		utilruntime.HandleError(fmt.Errorf("cannot add net-attach-def informer event handler: %v", err))
+	}
 
 	return result
 }
@@ -149,7 +152,7 @@ type NetDefInfo struct {
 
 // Name ...
 func (info *NetDefInfo) Name() string {
-	return info.Netdef.ObjectMeta.Name
+	return info.Netdef.Name
 }
 
 // NetDefMap ...
@@ -175,7 +178,6 @@ func (n *NetDefMap) apply(changes *NetDefChangeTracker) {
 	}
 	// clear changes after applying them to ServiceMap.
 	changes.items = make(map[types.NamespacedName]*netdefChange)
-	return
 }
 
 func (n *NetDefMap) merge(other NetDefMap) {
