@@ -275,6 +275,6 @@ var _ = Describe("runtime kind", func() {
 	})
 	It("Check container runtime option invalid case", func() {
 		var runtime RuntimeKind
-		Expect(runtime.Set("´\"Foobar\"")).To(MatchError("Invalid container-runtime option Foobar (possible values: \"cri\")"))
+		Expect(runtime.Set("Foobar")).To(MatchError("Invalid container-runtime option \"Foobar\" (possible values: \"cri\")"))
 	})
 })
