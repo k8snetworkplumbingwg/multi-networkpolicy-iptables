@@ -618,13 +618,12 @@ func (s *Server) applyPolicyRulesForPodAndFamily(pod *v1.Pod, podInfo *controlle
 			klog.Errorf("failed to apply drop remaining egress rules: %v", err)
 		}
 	}
+	if err := nftState.nft.Flush(); err != nil {
+		return fmt.Errorf("nft flush failed for pod [%s]: %w", podNamespacedName(pod), err)
+	}
 
 	if err := nftState.cleanup(); err != nil {
 		return fmt.Errorf("failed to cleanup nft: %w", err)
-	}
-
-	if err := nftState.nft.Flush(); err != nil {
-		return fmt.Errorf("nft flush failed for pod [%s]: %w", podNamespacedName(pod), err)
 	}
 
 	return nil

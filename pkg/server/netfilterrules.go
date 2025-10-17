@@ -989,7 +989,6 @@ func (n *nftState) applyPolicyPeersRulesSelector(s *Server, chain *nftables.Chai
 			continue
 		}
 		if nsSelector != nil && !nsSelector.Matches(labels.Set(nsLabels.Labels)) {
-			klog.Error("invalid namespace selector")
 			continue
 		}
 		s.podMap.Update(s.podChanges)
