@@ -59,7 +59,7 @@ type nftState struct {
 	chains map[string]*nftables.Chain
 }
 
-func bootstrapNetfilterChains(nftState *nftState, nft *nftables.Conn) {
+func bootstrapNetfilterChains(nftState *nftState) {
 	// the netfilter hook system
 	// ref: https://wiki.nftables.org/wiki-nftables/index.php/Netfilter_hooks
 	// Create our chains if they don't already exist
@@ -145,7 +145,7 @@ func bootstrapNetfilterRules(nft *nftables.Conn, podInfo *controllers.PodInfo) (
 		chains: make(map[string]*nftables.Chain),
 	}
 
-	bootstrapNetfilterChains(nftState, nft)
+	bootstrapNetfilterChains(nftState)
 
 	slices.SortFunc(podInfo.Interfaces, func(a, b controllers.InterfaceInfo) int {
 		return strings.Compare(a.InterfaceName, b.InterfaceName)

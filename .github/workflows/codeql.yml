@@ -2,9 +2,15 @@ name: "CodeQL"
 
 on:
   push:
-    branches: [ "master" ]
+    branches:
+      - "nftables"
+      - "main"
+      - "master"
   pull_request:
-    branches: [ "master" ]
+    branches:
+      - "nftables"
+      - "main"
+      - "master"
   schedule:
     - cron: "58 6 * * 4"
 

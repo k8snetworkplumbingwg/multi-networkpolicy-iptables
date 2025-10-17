@@ -7,10 +7,15 @@ ADD . /usr/src/multi-networkpolicy-iptables
 RUN cd /usr/src/multi-networkpolicy-iptables && \
     CGO_ENABLED=0 go build ./cmd/multi-networkpolicy-iptables/
 
-FROM fedora:38
-LABEL org.opencontainers.image.source=https://github.com/k8snetworkplumbingwg/multi-networkpolicy-iptables
-RUN dnf install -y iptables-utils iptables-legacy iptables-nft
-RUN alternatives --set iptables /usr/sbin/iptables-nft
+FROM docker.io/debian:stable-slim
+LABEL org.opencontainers.image.source=https://github.com/telekom/multi-networkpolicy-iptables
+RUN apt update \
+    && apt install -y --no-install-recommends \
+    nftables \
+    && apt clean \
+    && rm -Rf /usr/share/doc && rm -Rf /usr/share/man \
+    && rm -rf /var/lib/apt/lists/* \
+    && touch -d "2 hours ago" /var/lib/apt/lists
 COPY --from=build /usr/src/multi-networkpolicy-iptables/multi-networkpolicy-iptables /usr/bin
 WORKDIR /usr/bin
 
