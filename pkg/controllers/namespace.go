@@ -58,7 +58,7 @@ func NewNamespaceConfig(nsInformer coreinformers.NamespaceInformer, resyncPeriod
 		listerSynced: nsInformer.Informer().HasSynced,
 	}
 
-	nsInformer.Informer().AddEventHandlerWithResyncPeriod(
+	_, err := nsInformer.Informer().AddEventHandlerWithResyncPeriod(
 		cache.ResourceEventHandlerFuncs{
 			AddFunc:    result.handleAddNamespace,
 			UpdateFunc: result.handleUpdateNamespace,
@@ -66,6 +66,9 @@ func NewNamespaceConfig(nsInformer coreinformers.NamespaceInformer, resyncPeriod
 		},
 		resyncPeriod,
 	)
+	if err != nil {
+		utilruntime.HandleError(fmt.Errorf("cannot add namespace informer event handler: %v", err))
+	}
 	return result
 }
 
@@ -237,7 +240,6 @@ func (nm *NamespaceMap) apply(changes *NamespaceChangeTracker) {
 	}
 	// clear changes after applying them to ServiceMap.
 	changes.items = make(map[string]*nsChange)
-	return
 }
 
 func (nm *NamespaceMap) merge(other NamespaceMap) {
