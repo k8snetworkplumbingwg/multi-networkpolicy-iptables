@@ -124,22 +124,44 @@ func bootstrapNetfilterChains(nftState *nftState) {
 	}
 }
 
+func addTable(nft *nftables.Conn, table *nftables.Table) (*nftables.Table, error) {
+	t, err := nft.ListTableOfFamily(table.Name, table.Family)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("failed to check existance of table %q: %w", table.Name, err)
+	} else if err != nil && errors.Is(err, os.ErrNotExist) {
+		klog.V(8).Infof("adding table %q", table.Name)
+		t = nft.AddTable(table)
+	}
+
+	return t, nil
+}
+
 func bootstrapNetfilterRules(nft *nftables.Conn, podInfo *controllers.PodInfo) (*nftState, error) {
 	if podInfo == nil || len(podInfo.Interfaces) == 0 {
 		return nil, fmt.Errorf("podInfo or podInfo.Interfaces is nil/empty")
 	}
 
+	filterTable, err := addTable(nft, &nftables.Table{
+		Family: nftables.TableFamilyINet,
+		Name:   "filter",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to add table: %w", err)
+	}
+
+	natTable, err := addTable(nft, &nftables.Table{
+		Family: nftables.TableFamilyINet,
+		Name:   "nat",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to add table: %w", err)
+	}
+
 	nftState := &nftState{
 		nft: nft,
 		// Create filter and nat tables if they don't already exist
-		filter: nft.AddTable(&nftables.Table{
-			Family: nftables.TableFamilyINet,
-			Name:   "filter",
-		}),
-		nat: nft.AddTable(&nftables.Table{
-			Family: nftables.TableFamilyINet,
-			Name:   "nat",
-		}),
+		filter: filterTable,
+		nat:    natTable,
 		rules:  make(map[string]*nftables.Rule),
 		sets:   make(map[string]*nftables.Set),
 		chains: make(map[string]*nftables.Chain),
@@ -296,9 +318,12 @@ func (n *nftState) updateRule(rule *nftables.Rule, setUpdated bool, action func(
 		return fmt.Errorf("failed to get rule by comment: %w", err)
 	}
 
+	op := "adding"
+
 	shouldAdd := true
 	if existingRule != nil {
 		if setUpdated {
+			op = "updating"
 			existingRule.Exprs = rule.Exprs
 		} else {
 			shouldAdd = false
@@ -307,6 +332,7 @@ func (n *nftState) updateRule(rule *nftables.Rule, setUpdated bool, action func(
 	}
 
 	if shouldAdd {
+		klog.V(8).Infof("%s rule %q", op, comment)
 		action(rule)
 	}
 
@@ -321,7 +347,7 @@ func (n *nftState) updateSet(set *nftables.Set, elements []nftables.SetElement) 
 		return false, fmt.Errorf("failed to get set: %w", err)
 	}
 
-	exists := err == nil || !errors.Is(err, os.ErrNotExist)
+	exists := err == nil && existingSet != nil
 
 	add := true
 	if exists {
@@ -331,6 +357,7 @@ func (n *nftState) updateSet(set *nftables.Set, elements []nftables.SetElement) 
 		}
 
 		if !equal {
+			klog.V(8).Infof("deleting set %q", existingSet.Name)
 			n.nft.DelSet(existingSet)
 		} else {
 			add = false
@@ -338,6 +365,7 @@ func (n *nftState) updateSet(set *nftables.Set, elements []nftables.SetElement) 
 	}
 
 	if add {
+		klog.V(8).Infof("adding set %q", set.Name)
 		if err := n.nft.AddSet(set, elements); err != nil {
 			return false, fmt.Errorf("failed to add interface set: %v", err)
 		}
@@ -850,8 +878,8 @@ func (n *nftState) applyPrefixes(chain *nftables.Chain, policyName string, peer 
 			}
 		}
 		if len(exceptPrefixes) > 0 {
-			setName := fmt.Sprintf("%s_%s_%s_%d", peerIPBlockExceptPrefix, protocol, getAddressSuffix(chain), peerIndex)
-			ruleComment := fmt.Sprintf("policy:%s excepts-for:%s", policyName, peer.IPBlock.CIDR)
+			setName := fmt.Sprintf("%s_%s_%s_%s_%d", chain.Name, peerIPBlockExceptPrefix, protocol, getAddressSuffix(chain), peerIndex)
+			ruleComment := fmt.Sprintf("%s policy:%s excepts-for:%s", chain.Name, policyName, peer.IPBlock.CIDR)
 
 			exceptSet := &nftables.Set{
 				Table:    chain.Table,
@@ -893,13 +921,12 @@ func (n *nftState) applyPrefixes(chain *nftables.Chain, policyName string, peer 
 		}
 
 		prefixesSet := &nftables.Set{
-			Table:     chain.Table,
-			Name:      fmt.Sprintf("%s_%s_%s_%d", peerIPBlockPrefix, protocol, getAddressSuffix(chain), peerIndex),
-			Anonymous: true,
-			Constant:  true,
-			Counter:   true,
-			KeyType:   keyType,
-			Interval:  true,
+			Table:    chain.Table,
+			Name:     fmt.Sprintf("%s_%s_%s_%s_%d", chain.Name, peerIPBlockPrefix, protocol, getAddressSuffix(chain), peerIndex),
+			Constant: true,
+			Counter:  true,
+			KeyType:  keyType,
+			Interval: true,
 		}
 
 		setUpdated, err := n.updateSet(prefixesSet, prefixes)
@@ -910,7 +937,7 @@ func (n *nftState) applyPrefixes(chain *nftables.Chain, policyName string, peer 
 		if err := n.updateRule(&nftables.Rule{
 			Table:    chain.Table,
 			Chain:    chain,
-			UserData: userDataComment(fmt.Sprintf("accept policy:%s cidr:%s", policyName, peer.IPBlock.CIDR)),
+			UserData: userDataComment(fmt.Sprintf("%s accept policy:%s cidr:%s", chain.Name, policyName, peer.IPBlock.CIDR)),
 			Exprs: []expr.Any{
 				&expr.Payload{
 					DestRegister: 1,
@@ -959,7 +986,7 @@ func (n *nftState) applyPolicyPeersRulesIPBlock(chain *nftables.Chain, policyNam
 
 func (n *nftState) applyPolicyPeersRulesSelector(s *Server, chain *nftables.Chain, policyName string, peer multiv1beta1.MultiNetworkPolicyPeer,
 	podInfo *controllers.PodInfo, policyNetworks []string, peerIndex int) error {
-	klog.V(8).Infof("applying peers rules with selector: %s", peer.PodSelector.String())
+	klog.V(8).Infof("applying peers rules with pod selector: %s", peer.PodSelector.String())
 	podSelector, err := metav1.LabelSelectorAsSelector(peer.PodSelector)
 	if err != nil {
 		return fmt.Errorf("pod selector: %w", err)
@@ -972,7 +999,7 @@ func (n *nftState) applyPolicyPeersRulesSelector(s *Server, chain *nftables.Chai
 
 	var nsSelector labels.Selector
 	if peer.NamespaceSelector != nil {
-		klog.V(8).Infof("applying peers rules with selector: %s", peer.NamespaceSelector.String())
+		klog.V(8).Infof("applying peers rules with namespace selector: %s", peer.NamespaceSelector.String())
 		var err error
 		nsSelector, err = metav1.LabelSelectorAsSelector(peer.NamespaceSelector)
 		if err != nil {
@@ -982,6 +1009,7 @@ func (n *nftState) applyPolicyPeersRulesSelector(s *Server, chain *nftables.Chai
 	s.namespaceMap.Update(s.nsChanges)
 
 	var podIntfIPs []string
+	podIntfsIPsMap := make(map[string]any)
 	for _, sPod := range pods {
 		nsLabels, err := s.namespaceMap.GetNamespaceInfo(sPod.Namespace)
 		if err != nil {
@@ -1007,8 +1035,17 @@ func (n *nftState) applyPolicyPeersRulesSelector(s *Server, chain *nftables.Chai
 					continue
 				}
 
-				podIntfIPs = append(podIntfIPs, podIntf.IPs...)
-				podIntfIPs = append(podIntfIPs, sPodIntf.IPs...)
+				for _, ip := range podIntf.IPs {
+					podIntfsIPsMap[ip] = nil
+				}
+
+				for _, ip := range sPodIntf.IPs {
+					podIntfsIPsMap[ip] = nil
+				}
+
+				for ip := range podIntfsIPsMap {
+					podIntfIPs = append(podIntfIPs, ip)
+				}
 			}
 		}
 	}
@@ -1503,6 +1540,7 @@ func (n *nftState) addChain(chain *nftables.Chain) (*nftables.Chain, error) {
 	existingChain, err := n.nft.ListChain(chain.Table, chain.Name)
 	var c *nftables.Chain
 	if (err != nil && errors.Is(err, os.ErrNotExist)) || existingChain == nil {
+		klog.V(8).Infof("adding chain %q", chain.Name)
 		c = n.nft.AddChain(chain)
 	} else if err != nil {
 		return nil, fmt.Errorf("failed to configure chain %q in table %q: %w", chain.Name, chain.Table.Name, err)
@@ -1541,7 +1579,7 @@ func (n *nftState) cleanup() error {
 }
 
 func (n *nftState) cleanupRules(table *nftables.Table) error {
-	chains, err := n.nft.ListChains()
+	chains, err := n.nft.ListChainsOfTableFamily(table.Family)
 	if err != nil {
 		return fmt.Errorf("failed to list chains: %w", err)
 	}
@@ -1593,7 +1631,7 @@ func (n *nftState) cleanupRules(table *nftables.Table) error {
 }
 
 func (n *nftState) cleanupChains() error {
-	chains, err := n.nft.ListChains()
+	chains, err := n.nft.ListChainsOfTableFamily(nftables.TableFamilyINet)
 	if err != nil {
 		return fmt.Errorf("failed to list chains: %w", err)
 	}
