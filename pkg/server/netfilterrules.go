@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"math"
 	"net"
 	"net/netip"
@@ -342,6 +343,9 @@ func (n *nftState) updateRule(rule *nftables.Rule, setUpdated bool, action func(
 }
 
 func (n *nftState) updateSet(set *nftables.Set, elements []nftables.SetElement) (bool, error) {
+	if len(set.Name) > 31 {
+		set.Name = hash(set.Name)
+	}
 	existingSet, err := n.nft.GetSetByName(set.Table, set.Name)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return false, fmt.Errorf("failed to get set: %w", err)
@@ -1254,20 +1258,24 @@ func (n *nftState) applyPolicyPeersRules(s *Server, chain *nftables.Chain, polic
 func (n *nftState) findRuleByComment(table *nftables.Table, chain *nftables.Chain, comment string) (*nftables.Rule, error) {
 	rules, err := n.nft.GetRules(table, chain)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get rule by comment %q from table %q, chain %q: %w", comment, table.Name, chain.Name, err)
+		return nil, fmt.Errorf("failed to list rules in table %q, chain %q: %w", table.Name, chain.Name, err)
 	}
 
 	var existing *nftables.Rule
 	cnt := 0
 	for _, r := range rules {
-		if c, _ := userdata.GetString(r.UserData, userdata.TypeComment); strings.EqualFold(c, comment) {
+		if c, _ := userdata.GetString(r.UserData, userdata.TypeComment); c == comment {
 			existing = r
 			cnt++
 		}
 	}
 
+	if cnt == 0 {
+		return nil, nil
+	}
+
 	if cnt > 1 {
-		return nil, fmt.Errorf("too many rules for %q from table %q, chain %q", comment, table.Name, chain.Name)
+		klog.Warningf("too many rules (%d) for comment %q in table %q, chain %q", cnt, comment, table.Name, chain.Name)
 	}
 
 	return existing, nil
@@ -1536,7 +1544,16 @@ func (n *nftState) applyPodRules(s *Server, chain *nftables.Chain, podInfo *cont
 	return nil
 }
 
+func hash(s string) string {
+	h := fnv.New32a()
+	h.Write([]byte(s))
+	return fmt.Sprintf("%d", h.Sum32())
+}
+
 func (n *nftState) addChain(chain *nftables.Chain) (*nftables.Chain, error) {
+	if len(chain.Name) > 31 {
+		chain.Name = hash(chain.Name)
+	}
 	existingChain, err := n.nft.ListChain(chain.Table, chain.Name)
 	var c *nftables.Chain
 	if (err != nil && errors.Is(err, os.ErrNotExist)) || existingChain == nil {
