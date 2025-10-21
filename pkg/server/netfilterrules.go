@@ -1083,8 +1083,10 @@ func (n *nftState) addIPRule(addrs []string, chain *nftables.Chain, policyName s
 		offset += payloadLen
 	}
 
+	selectorHash := hash(peer.PodSelector.String())
+
 	ipSet := &nftables.Set{
-		Name:    fmt.Sprintf("%s_%s_%d_%s_%s", policyName, getAddressSuffix(chain), peerIndex, protocol, peer.PodSelector.String()),
+		Name:    fmt.Sprintf("%s_%s_%d_%s_%s", policyName, getAddressSuffix(chain), peerIndex, protocol, selectorHash),
 		Table:   chain.Table,
 		KeyType: keyType,
 	}
@@ -1108,7 +1110,7 @@ func (n *nftState) addIPRule(addrs []string, chain *nftables.Chain, policyName s
 	return n.updateRule(&nftables.Rule{
 		Table:    chain.Table,
 		Chain:    chain,
-		UserData: userDataComment(fmt.Sprintf("policy:%s selector-for:%s %s", policyName, peer.PodSelector.String(), protocol)),
+		UserData: userDataComment(fmt.Sprintf("policy:%s selector-for:%s %s", policyName, selectorHash, protocol)),
 		Exprs: []expr.Any{
 			&expr.Payload{
 				DestRegister: 1,
@@ -1132,21 +1134,26 @@ func (n *nftState) addIPRule(addrs []string, chain *nftables.Chain, policyName s
 func (n *nftState) checkElementsEqual(set *nftables.Set, newElements []nftables.SetElement) (bool, error) {
 	existingElements, err := n.nft.GetSetElements(set)
 	if err != nil {
-		return false, fmt.Errorf("failed to get elemtns for set %q: %w", set.Name, err)
+		return false, fmt.Errorf("failed to get elemetns for set %q: %w", set.Name, err)
 	}
 
 	equal := false
-	cntPresent := 0
+	cnt := 0
+	klog.V(8).Infof("existingElements: %d", len(existingElements))
+	klog.V(8).Infof("newElements: %d", len(newElements))
 	if len(newElements) == len(existingElements) {
 		for _, extEl := range existingElements {
+			klog.V(8).Infof("extEl: %v", extEl.Key)
 			for _, ipSetEl := range newElements {
+				klog.V(8).Infof("ipSetEl: %v", ipSetEl.Key)
 				if slices.Equal(extEl.Key, ipSetEl.Key) {
-					cntPresent += 1
+					cnt += 1
 					break
 				}
 			}
 		}
-		equal = len(newElements) == cntPresent
+		klog.V(8).Infof("found: %d", cnt)
+		equal = len(newElements) == cnt
 	}
 
 	return equal, nil
