@@ -11,6 +11,8 @@ jobs:
   build-images:
     name: Docker build
     runs-on: ${{ matrix.runner }}
+    permissions:
+      packages: write
     strategy:
       matrix:
         arch: ["amd64", "arm64"]
