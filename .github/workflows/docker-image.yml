@@ -72,6 +72,8 @@ jobs:
 
   publish-image:
     runs-on: ubuntu-latest
+    permissions:
+      packages: write
     needs:
       - build-images
     steps:
