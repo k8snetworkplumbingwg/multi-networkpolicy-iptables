@@ -1,9 +1,9 @@
 package server
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
-	"hash/fnv"
 	"math"
 	"net"
 	"net/netip"
@@ -313,27 +313,24 @@ func bootstrapNetfilterRules(nft *nftables.Conn, podInfo *controllers.PodInfo) (
 func (n *nftState) updateRule(rule *nftables.Rule, action func(r *nftables.Rule) *nftables.Rule) error {
 	comment, _ := userdata.GetString(rule.UserData, userdata.TypeComment)
 
-	existingRule, err := n.findRuleByComment(rule.Table, rule.Chain, comment)
+	existingRule, err := n.findRule(rule)
 	if err != nil {
 		return fmt.Errorf("failed to get rule by comment: %w", err)
 	}
 
-	op := "adding"
 	if existingRule != nil {
-		if !ruleEqual(rule, existingRule) {
-			existingRule.Exprs = rule.Exprs
-			rule = existingRule
-			op = "updating"
-		} else {
-			n.rules[comment] = rule
-			return nil
-		}
+		rule = existingRule
+	} else {
+		klog.V(8).Infof("adding rule %q", comment)
+		action(rule)
 	}
 
-	klog.V(8).Infof("%s rule %q", op, comment)
-	action(rule)
+	key, err := hash(rule)
+	if err != nil {
+		return fmt.Errorf("failed to get hash for rule %q: %w", comment, err)
+	}
+	n.rules[key] = rule
 
-	n.rules[comment] = rule
 	return nil
 }
 
@@ -342,6 +339,10 @@ func ruleEqual(a, b *nftables.Rule) bool {
 		return false
 	}
 	if a.Table.Name != b.Table.Name {
+		return false
+	}
+
+	if !bytes.Equal(a.UserData, b.UserData) {
 		return false
 	}
 
@@ -398,7 +399,11 @@ func exprEqual[V *expr.Meta | *expr.Lookup | *expr.Verdict | *expr.Cmp | *expr.P
 
 func (n *nftState) updateSet(set *nftables.Set, elements []nftables.SetElement) error {
 	if len(set.Name) > 31 {
-		set.Name = hash(set.Name)
+		var err error
+		set.Name, err = hash(set.Name)
+		if err != nil {
+			return fmt.Errorf("failed to hash set name %q: %w", set.Name, err)
+		}
 	}
 	existingSet, err := n.nft.GetSetByName(set.Table, set.Name)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -825,7 +830,7 @@ func (n *nftState) applyPodInterfaceRules(chain, policyChain *nftables.Chain, po
 	if err := n.updateRule(&nftables.Rule{
 		Table:    n.filter,
 		Chain:    chain,
-		UserData: userDataComment(fmt.Sprintf("policy:%s check mark 0x30000", policy.Name)),
+		UserData: userDataComment(fmt.Sprintf("policy:%s check mark 0x30000, %s", policy.Name, podInterface.InterfaceName)),
 		Exprs: []expr.Any{
 			&expr.Meta{Key: expr.MetaKeyMARK, Register: 1},
 			&expr.Bitwise{
@@ -1166,7 +1171,10 @@ func (n *nftState) addIPRule(addrs []string, chain *nftables.Chain, policyName s
 		offset += payloadLen
 	}
 
-	selectorHash := hash(peer.PodSelector.String())
+	selectorHash, err := hash(peer.PodSelector.String())
+	if err != nil {
+		return fmt.Errorf("failed to hash pod selector %q: %w", peer.PodSelector.String(), err)
+	}
 
 	ipSet := &nftables.Set{
 		Name:    fmt.Sprintf("%s_%s_%d_%s_%s", policyName, getAddressSuffix(chain), peerIndex, protocol, selectorHash),
@@ -1316,16 +1324,16 @@ func (n *nftState) applyPolicyPeersRules(s *Server, chain *nftables.Chain, polic
 	return nil
 }
 
-func (n *nftState) findRuleByComment(table *nftables.Table, chain *nftables.Chain, comment string) (*nftables.Rule, error) {
-	rules, err := n.nft.GetRules(table, chain)
+func (n *nftState) findRule(rule *nftables.Rule) (*nftables.Rule, error) {
+	rules, err := n.nft.GetRules(rule.Table, rule.Chain)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list rules in table %q, chain %q: %w", table.Name, chain.Name, err)
+		return nil, fmt.Errorf("failed to list rules in table %q, chain %q: %w", rule.Table.Name, rule.Chain.Name, err)
 	}
 
 	var existing *nftables.Rule
 	cnt := 0
 	for _, r := range rules {
-		if c, _ := userdata.GetString(r.UserData, userdata.TypeComment); c == comment {
+		if ruleEqual(rule, r) {
 			existing = r
 			cnt++
 		}
@@ -1336,7 +1344,12 @@ func (n *nftState) findRuleByComment(table *nftables.Table, chain *nftables.Chai
 	}
 
 	if cnt > 1 {
-		klog.Warningf("too many rules (%d) for comment %q in table %q, chain %q", cnt, comment, table.Name, chain.Name)
+		comment, ok := userdata.GetString(rule.UserData, userdata.TypeComment)
+		if !ok {
+			klog.Warningf("failed to get comment for rule %d in table %q, chain %q", rule.Handle, rule.Table.Name, rule.Chain.Name)
+		} else {
+			klog.Warningf("too many rules (%d) for rule %q in table %q, chain %q", cnt, comment, rule.Table.Name, rule.Chain.Name)
+		}
 	}
 
 	return existing, nil
@@ -1602,15 +1615,14 @@ func (n *nftState) applyPodRules(s *Server, chain *nftables.Chain, podInfo *cont
 	return nil
 }
 
-func hash(s string) string {
-	h := fnv.New32a()
-	h.Write([]byte(s))
-	return fmt.Sprintf("%d", h.Sum32())
-}
-
 func (n *nftState) addChain(chain *nftables.Chain) (*nftables.Chain, error) {
 	if len(chain.Name) > 31 {
-		chain.Name = hash(chain.Name)
+		var err error
+		chain.Name, err = hash(chain.Name)
+		if err != nil {
+			return nil, fmt.Errorf("failed to hash chain name %q: %w", chain.Name, err)
+		}
+
 	}
 	existingChain, err := n.nft.ListChain(chain.Table, chain.Name)
 	var c *nftables.Chain
@@ -1668,12 +1680,11 @@ func (n *nftState) cleanupRules(table *nftables.Table) error {
 				return fmt.Errorf("failed to list rules for table %q, chain %q: %w", table.Name, chain.Name, err)
 			}
 			for _, rule := range rules {
-				comment, ok := userdata.GetString(rule.UserData, userdata.TypeComment)
-				if !ok {
-					klog.Warning("failed to get comment for the rule")
-					continue
+				key, err := hash(rule)
+				if err != nil {
+					klog.Warning("failed to get key for rule: %w", err)
 				}
-				if _, exists := n.rules[comment]; !exists {
+				if _, exists := n.rules[key]; !exists {
 					comment, _ := userdata.GetString(rule.UserData, userdata.TypeComment)
 					klog.V(8).Infof("deleting rule %q in chain %q", comment, rule.Chain.Name)
 					err = n.nft.DelRule(rule)
