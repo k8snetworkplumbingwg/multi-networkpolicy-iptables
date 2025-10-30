@@ -1,6 +1,6 @@
 module github.com/k8snetworkplumbingwg/multi-networkpolicy-iptables
 
-go 1.19
+go 1.23.0
 
 require (
 	github.com/containernetworking/cni v0.8.1
@@ -58,13 +58,12 @@ require (
 	github.com/prometheus/procfs v0.12.0 // indirect
 	golang.org/x/mod v0.14.0 // indirect
 	golang.org/x/net v0.41.0 // indirect
-	golang.org/x/oauth2 v0.16.0 // indirect
+	golang.org/x/oauth2 v0.27.0 // indirect
 	golang.org/x/sys v0.16.0 // indirect
 	golang.org/x/term v0.15.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 	golang.org/x/time v0.3.0 // indirect
 	golang.org/x/tools v0.16.1 // indirect
-	google.golang.org/appengine v1.6.7 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20230525234030-28d5490b6b19 // indirect
 	google.golang.org/protobuf v1.33.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
