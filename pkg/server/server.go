@@ -603,6 +603,9 @@ func (s *Server) applyPolicyRulesForPodAndFamily(pod *v1.Pod, podInfo *controlle
 				klog.Errorf("failed to apply pod ingress rules: %v", err)
 			}
 		}
+		if err := nftState.applyGeneralMarkCheck(nftState.ingressChain); err != nil {
+			return fmt.Errorf("failed to apply mark check rule in chain %q: %w", nftState.ingressChain.Name, err)
+		}
 		if err := nftState.applyDropRemaining(nftState.ingressChain); err != nil {
 			klog.Errorf("failed to apply drop remaining ingress rules: %v", err)
 		}
@@ -613,6 +616,9 @@ func (s *Server) applyPolicyRulesForPodAndFamily(pod *v1.Pod, podInfo *controlle
 			if err := nftState.applyPodRules(s, nftState.egressChain, podInfo, idx, policy.policy, policy.policyNetworks); err != nil {
 				klog.Errorf("failed to apply pod egress rules: %v", err)
 			}
+		}
+		if err := nftState.applyGeneralMarkCheck(nftState.egressChain); err != nil {
+			return fmt.Errorf("failed to apply mark check rule in chain %q: %w", nftState.egressChain.Name, err)
 		}
 		if err := nftState.applyDropRemaining(nftState.egressChain); err != nil {
 			klog.Errorf("failed to apply drop remaining egress rules: %v", err)

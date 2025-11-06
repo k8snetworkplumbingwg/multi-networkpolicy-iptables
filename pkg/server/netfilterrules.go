@@ -226,7 +226,7 @@ func bootstrapNetfilterRules(nft *nftables.Conn, podInfo *controllers.PodInfo) (
 		},
 	}
 
-	if err := nftState.updateRule(filterInputRule, nft.InsertRule); err != nil {
+	if err := nftState.updateRule(filterInputRule, nft.InsertRule, false); err != nil {
 		return nftState, fmt.Errorf("failed to install rule: %w", err)
 	}
 
@@ -249,7 +249,7 @@ func bootstrapNetfilterRules(nft *nftables.Conn, podInfo *controllers.PodInfo) (
 		},
 	}
 
-	if err := nftState.updateRule(filterOutputRule, nft.InsertRule); err != nil {
+	if err := nftState.updateRule(filterOutputRule, nft.InsertRule, false); err != nil {
 		return nftState, fmt.Errorf("failed to install rule: %w", err)
 	}
 
@@ -273,7 +273,7 @@ func bootstrapNetfilterRules(nft *nftables.Conn, podInfo *controllers.PodInfo) (
 				Kind: expr.VerdictReturn,
 			},
 		},
-	}, nft.InsertRule); err != nil {
+	}, nft.InsertRule, false); err != nil {
 		return nftState, err
 	}
 
@@ -288,7 +288,7 @@ func bootstrapNetfilterRules(nft *nftables.Conn, podInfo *controllers.PodInfo) (
 				Chain: nftState.commonIngressChain.Name,
 			},
 		},
-	}, nft.InsertRule); err != nil {
+	}, nft.InsertRule, false); err != nil {
 		return nftState, err
 	}
 
@@ -303,14 +303,14 @@ func bootstrapNetfilterRules(nft *nftables.Conn, podInfo *controllers.PodInfo) (
 				Chain: nftState.commonEgressChain.Name,
 			},
 		},
-	}, nft.InsertRule); err != nil {
+	}, nft.InsertRule, false); err != nil {
 		return nftState, err
 	}
 
 	return nftState, nil
 }
 
-func (n *nftState) updateRule(rule *nftables.Rule, action func(r *nftables.Rule) *nftables.Rule) error {
+func (n *nftState) updateRule(rule *nftables.Rule, action func(r *nftables.Rule) *nftables.Rule, forceUpdate bool) error {
 	comment, _ := userdata.GetString(rule.UserData, userdata.TypeComment)
 
 	existingRule, err := n.findRule(rule)
@@ -318,8 +318,31 @@ func (n *nftState) updateRule(rule *nftables.Rule, action func(r *nftables.Rule)
 		return fmt.Errorf("failed to get rule by comment: %w", err)
 	}
 
-	if existingRule != nil {
+	if existingRule != nil && !forceUpdate {
 		rule = existingRule
+	} else if existingRule != nil {
+		klog.V(8).Infof("forcing rule update %q", comment)
+		counterCopied := false
+		for i := range existingRule.Exprs {
+			if c, ok := existingRule.Exprs[i].(*expr.Counter); ok {
+				for j := range rule.Exprs {
+					if nc, ok := rule.Exprs[j].(*expr.Counter); ok {
+						nc.Bytes = c.Bytes
+						nc.Packets = c.Packets
+						counterCopied = true
+						break
+					}
+				}
+			}
+			if counterCopied {
+				break
+			}
+		}
+		if err := n.nft.DelRule(existingRule); err != nil {
+			return fmt.Errorf("failed to delete exsting rule: %w", err)
+		}
+
+		action(rule)
 	} else {
 		klog.V(8).Infof("adding rule %q", comment)
 		action(rule)
@@ -499,7 +522,7 @@ func (n *nftState) allowICMP(chain *nftables.Chain, icmpv6 bool) error {
 				Kind: expr.VerdictAccept,
 			},
 		},
-	}, n.nft.AddRule)
+	}, n.nft.AddRule, false)
 }
 
 func (n *nftState) allowNeighborDiscovery(chain *nftables.Chain) error {
@@ -566,7 +589,7 @@ func (n *nftState) allowNeighborDiscovery(chain *nftables.Chain) error {
 				Kind: expr.VerdictAccept,
 			},
 		},
-	}, n.nft.AddRule); err != nil {
+	}, n.nft.InsertRule, false); err != nil {
 		return fmt.Errorf("failed to add IPv6 NDP discovery rule: %w", err)
 	}
 
@@ -657,7 +680,7 @@ func (n *nftState) applyCommonPrefixRules(chain *nftables.Chain, prefixes []stri
 					Kind: expr.VerdictAccept,
 				},
 			},
-		}, n.nft.AddRule); err != nil {
+		}, n.nft.AddRule, false); err != nil {
 			return err
 		}
 	}
@@ -691,7 +714,7 @@ func (n *nftState) applyCommonPrefixRules(chain *nftables.Chain, prefixes []stri
 					Kind: expr.VerdictAccept,
 				},
 			},
-		}, n.nft.AddRule); err != nil {
+		}, n.nft.AddRule, false); err != nil {
 			return err
 		}
 	}
@@ -717,7 +740,7 @@ func (n *nftState) allowConntracked(chain *nftables.Chain) error {
 			&expr.Counter{},
 			&expr.Verdict{Kind: expr.VerdictAccept},
 		},
-	}, n.nft.AddRule)
+	}, n.nft.AddRule, false)
 }
 
 func (n *nftState) applyCommonChainRules(s *Server) error {
@@ -809,7 +832,7 @@ func (n *nftState) applyPodInterfaceRules(chain, policyChain *nftables.Chain, po
 	if err := n.updateRule(&nftables.Rule{
 		Table:    n.filter,
 		Chain:    chain,
-		UserData: userDataComment(fmt.Sprintf("policy:%s net-attach-def:%s interface:%s [%q]", policy.Name, podInterface.NetattachName, podInterface.InterfaceName, podInterface.InterfaceType)),
+		UserData: userDataComment(fmt.Sprintf("policy:%s net-attach-def:%s interface:%s [%s]", policy.Name, podInterface.NetattachName, podInterface.InterfaceName, podInterface.InterfaceType)),
 		Exprs: []expr.Any{
 			&expr.Meta{Key: getMetaKeyInterface(chain), Register: 1},
 			&expr.Cmp{
@@ -823,14 +846,18 @@ func (n *nftState) applyPodInterfaceRules(chain, policyChain *nftables.Chain, po
 				Chain: policyChain.Name,
 			},
 		},
-	}, n.nft.AddRule); err != nil {
+	}, n.nft.AddRule, false); err != nil {
 		return err
 	}
 
-	if err := n.updateRule(&nftables.Rule{
+	return nil
+}
+
+func (n *nftState) applyGeneralMarkCheck(chain *nftables.Chain) error {
+	return n.updateRule(&nftables.Rule{
 		Table:    n.filter,
 		Chain:    chain,
-		UserData: userDataComment(fmt.Sprintf("policy:%s check mark 0x30000, %s", policy.Name, podInterface.InterfaceName)),
+		UserData: userDataComment("check mark 0x30000"),
 		Exprs: []expr.Any{
 			&expr.Meta{Key: expr.MetaKeyMARK, Register: 1},
 			&expr.Bitwise{
@@ -847,11 +874,7 @@ func (n *nftState) applyPodInterfaceRules(chain, policyChain *nftables.Chain, po
 			},
 			&expr.Counter{},
 			&expr.Verdict{Kind: expr.VerdictReturn},
-		}}, n.nft.AddRule); err != nil {
-		return err
-	}
-
-	return nil
+		}}, n.nft.AddRule, true)
 }
 
 // reset previous mark bits
@@ -873,7 +896,7 @@ func (n *nftState) applyMarkReset(policyChain *nftables.Chain, policyName string
 			&expr.Meta{Key: expr.MetaKeyMARK, SourceRegister: true, Register: 1},
 			&expr.Counter{},
 		},
-	}, n.nft.AddRule)
+	}, n.nft.AddRule, false)
 }
 
 // Check if we matched something and do a early return
@@ -899,7 +922,7 @@ func (n *nftState) applyMarkCheck(policyChain *nftables.Chain, policyName string
 			},
 			&expr.Counter{},
 			&expr.Verdict{Kind: expr.VerdictReturn},
-		}}, n.nft.AddRule)
+		}}, n.nft.AddRule, false)
 }
 
 func getSetName(str string) string {
@@ -916,7 +939,7 @@ func (n *nftState) applyDropRemaining(chain *nftables.Chain) error {
 			&expr.Counter{},
 			&expr.Verdict{Kind: expr.VerdictDrop},
 		},
-	}, n.nft.AddRule)
+	}, n.nft.AddRule, true)
 }
 
 func isIngressChain(chain *nftables.Chain) bool {
@@ -1008,7 +1031,7 @@ func (n *nftState) applyPrefixes(chain *nftables.Chain, policyName string, peer 
 						Kind: expr.VerdictDrop,
 					},
 				},
-			}, n.nft.AddRule); err != nil {
+			}, n.nft.AddRule, false); err != nil {
 				return err
 			}
 		}
@@ -1047,7 +1070,7 @@ func (n *nftState) applyPrefixes(chain *nftables.Chain, policyName string, peer 
 					Kind: expr.VerdictAccept,
 				},
 			},
-		}, n.nft.AddRule); err != nil {
+		}, n.nft.AddRule, false); err != nil {
 			return err
 		}
 	}
@@ -1218,7 +1241,7 @@ func (n *nftState) addIPRule(addrs []string, chain *nftables.Chain, policyName s
 				Kind: expr.VerdictAccept,
 			},
 		},
-	}, n.nft.AddRule)
+	}, n.nft.AddRule, false)
 }
 
 func (n *nftState) addIPRules(addrs []string, chain *nftables.Chain, policyName string, peer multiv1beta1.MultiNetworkPolicyPeer,
@@ -1270,7 +1293,7 @@ func (n *nftState) applyPolicyPeersRules(s *Server, chain *nftables.Chain, polic
 				Kind:  expr.VerdictJump,
 				Chain: peersChain.Name,
 			},
-		}}, n.nft.AddRule); err != nil {
+		}}, n.nft.AddRule, false); err != nil {
 		return err
 	}
 	// sync podmap before calculating rules
@@ -1315,7 +1338,7 @@ func (n *nftState) applyPolicyPeersRules(s *Server, chain *nftables.Chain, polic
 					Xor:            binaryutil.NativeEndian.PutUint32(0x20000), // 0x200000
 				},
 				&expr.Meta{Key: expr.MetaKeyMARK, SourceRegister: true, Register: 1},
-			}}, n.nft.AddRule); err != nil {
+			}}, n.nft.AddRule, false); err != nil {
 			return err
 		}
 
@@ -1416,7 +1439,7 @@ func (n *nftState) applyProtoPortsRules(chain *nftables.Chain, policyName string
 				Kind: expr.VerdictAccept,
 			},
 		},
-	}, n.nft.AddRule)
+	}, n.nft.AddRule, false)
 }
 
 func (n *nftState) applyPolicyPortsRules(chain *nftables.Chain, policyName string, ports []multiv1beta1.MultiNetworkPolicyPort, portIndex int) error {
@@ -1441,7 +1464,7 @@ func (n *nftState) applyPolicyPortsRules(chain *nftables.Chain, policyName strin
 				Kind:  expr.VerdictJump,
 				Chain: portChain.Name,
 			},
-		}}, n.nft.AddRule); err != nil {
+		}}, n.nft.AddRule, false); err != nil {
 		return err
 	}
 
@@ -1557,7 +1580,7 @@ func (n *nftState) applyPolicyPortsRules(chain *nftables.Chain, policyName strin
 					Xor:            binaryutil.NativeEndian.PutUint32(0x10000), // 0x100000
 				},
 				&expr.Meta{Key: expr.MetaKeyMARK, SourceRegister: true, Register: 1},
-			}}, n.nft.AddRule); err != nil {
+			}}, n.nft.AddRule, false); err != nil {
 			return err
 		}
 	}
@@ -1581,6 +1604,7 @@ func (n *nftState) applyPodRules(s *Server, chain *nftables.Chain, podInfo *cont
 			}
 		}
 	}
+
 	if isIngressChain(chain) {
 		for index, ingress := range policy.Spec.Ingress {
 			if err := n.applyMarkReset(policyChain, policyNamespacedName(policy), index); err != nil {
