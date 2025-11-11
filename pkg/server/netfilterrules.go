@@ -212,11 +212,11 @@ func bootstrapNetfilterRules(nft *nftables.Conn, podInfo *controllers.PodInfo) (
 		Chain:    nftState.input,
 		UserData: userDataComment(inputInterfaceFilterComment),
 		Exprs: []expr.Any{
-			&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+			&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 0x1},
 			&expr.Lookup{
 				SetName:        nftState.interfaceFilterSet.Name,
 				SetID:          nftState.interfaceFilterSet.ID,
-				SourceRegister: 1,
+				SourceRegister: 0x1,
 			},
 			&expr.Counter{},
 			&expr.Verdict{
@@ -235,11 +235,11 @@ func bootstrapNetfilterRules(nft *nftables.Conn, podInfo *controllers.PodInfo) (
 		Chain:    nftState.output,
 		UserData: userDataComment(outputInterfaceFilterComment),
 		Exprs: []expr.Any{
-			&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
+			&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 0x1},
 			&expr.Lookup{
 				SetName:        nftState.interfaceFilterSet.Name,
 				SetID:          nftState.interfaceFilterSet.ID,
-				SourceRegister: 1,
+				SourceRegister: 0x1,
 			},
 			&expr.Counter{},
 			&expr.Verdict{
@@ -262,11 +262,11 @@ func bootstrapNetfilterRules(nft *nftables.Conn, podInfo *controllers.PodInfo) (
 		Chain:    nftState.prerouting,
 		UserData: userDataComment("nat-filter-rule"),
 		Exprs: []expr.Any{
-			&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+			&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 0x1},
 			&expr.Lookup{
 				SetName:        nftState.interfaceNatSet.Name,
 				SetID:          nftState.interfaceNatSet.ID,
-				SourceRegister: 1,
+				SourceRegister: 0x1,
 			},
 			&expr.Counter{},
 			&expr.Verdict{
@@ -511,9 +511,9 @@ func (n *nftState) allowICMP(chain *nftables.Chain, icmpv6 bool) error {
 		Chain:    chain,
 		UserData: userDataComment(fmt.Sprintf("allow_icmp_%s", proto)),
 		Exprs: []expr.Any{
-			&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
+			&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 0x1},
 			&expr.Cmp{
-				Register: 1,
+				Register: 0x1,
 				Op:       expr.CmpOpEq,
 				Data:     data,
 			},
@@ -559,28 +559,28 @@ func (n *nftState) allowNeighborDiscovery(chain *nftables.Chain) error {
 		Chain:    chain,
 		UserData: userDataComment("allow IPv6 NDP"),
 		Exprs: []expr.Any{
-			&expr.Meta{Key: expr.MetaKeyNFPROTO, Register: 1},
+			&expr.Meta{Key: expr.MetaKeyNFPROTO, Register: 0x1},
 			&expr.Cmp{
 				Op:       expr.CmpOpEq,
-				Register: 1,
+				Register: 0x1,
 				Data:     binaryutil.NativeEndian.PutUint32(0x0000000a),
 			},
 			&expr.Meta{
 				Key:      expr.MetaKeyL4PROTO,
-				Register: 1,
+				Register: 0x1,
 			},
 			&expr.Cmp{
 				Op:       expr.CmpOpEq,
-				Register: 1,
+				Register: 0x1,
 				Data:     binaryutil.NativeEndian.PutUint32(0x0000003a),
 			},
 			&expr.Payload{
-				DestRegister: 1,
+				DestRegister: 0x1,
 				Base:         expr.PayloadBaseTransportHeader,
 				Len:          1,
 			},
 			&expr.Lookup{
-				SourceRegister: 1,
+				SourceRegister: 0x1,
 				SetName:        ndpSet.Name,
 				SetID:          ndpSet.ID,
 			},
@@ -732,17 +732,19 @@ func (n *nftState) allowConntracked(chain *nftables.Chain) error {
 		Chain:    chain,
 		UserData: userDataComment(allowConntrackRuleName),
 		Exprs: []expr.Any{
-			&expr.Ct{Register: 1, SourceRegister: false, Key: expr.CtKeySTATE},
+			&expr.Ct{Register: 0x1, SourceRegister: false, Key: expr.CtKeySTATE},
 			&expr.Bitwise{
-				SourceRegister: 1,
-				DestRegister:   1,
+				SourceRegister: 0x1,
+				DestRegister:   0x1,
 				Len:            4,
 				Mask:           binaryutil.NativeEndian.PutUint32(expr.CtStateBitESTABLISHED | expr.CtStateBitRELATED),
 				Xor:            binaryutil.NativeEndian.PutUint32(0),
 			},
-			&expr.Cmp{Op: expr.CmpOpNeq, Register: 1, Data: []byte{0, 0, 0, 0}},
+			&expr.Cmp{Op: expr.CmpOpNeq, Register: 0x1, Data: []byte{0, 0, 0, 0}},
 			&expr.Counter{},
-			&expr.Verdict{Kind: expr.VerdictAccept},
+			&expr.Verdict{
+				Kind: expr.VerdictAccept,
+			},
 		},
 	}, n.nft.AddRule, false)
 }
@@ -838,9 +840,9 @@ func (n *nftState) applyPodInterfaceRules(chain, policyChain *nftables.Chain, po
 		Chain:    chain,
 		UserData: userDataComment(fmt.Sprintf("policy:%s net-attach-def:%s interface:%s [%s]", policy.Name, podInterface.NetattachName, podInterface.InterfaceName, podInterface.InterfaceType)),
 		Exprs: []expr.Any{
-			&expr.Meta{Key: getMetaKeyInterface(chain), Register: 1},
+			&expr.Meta{Key: getMetaKeyInterface(chain), Register: 0x1},
 			&expr.Cmp{
-				Register: 1,
+				Register: 0x1,
 				Op:       expr.CmpOpEq,
 				Data:     ifname(podInterface.InterfaceName),
 			},
@@ -863,16 +865,16 @@ func (n *nftState) applyGeneralMarkCheck(chain *nftables.Chain) error {
 		Chain:    chain,
 		UserData: userDataComment("check mark 0x30000"),
 		Exprs: []expr.Any{
-			&expr.Meta{Key: expr.MetaKeyMARK, Register: 1},
+			&expr.Meta{Key: expr.MetaKeyMARK, Register: 0x1},
 			&expr.Bitwise{
-				SourceRegister: 1,
-				DestRegister:   1,
+				SourceRegister: 0x1,
+				DestRegister:   0x1,
 				Len:            4,
 				Mask:           binaryutil.NativeEndian.PutUint32(0x30000),
 				Xor:            binaryutil.NativeEndian.PutUint32(0x0),
 			},
 			&expr.Cmp{
-				Register: 1,
+				Register: 0x1,
 				Op:       expr.CmpOpEq,
 				Data:     binaryutil.NativeEndian.PutUint32(0x30000),
 			},
@@ -889,15 +891,15 @@ func (n *nftState) applyMarkReset(policyChain *nftables.Chain, policyName string
 		Chain:    policyChain,
 		UserData: userDataComment(fmt.Sprintf("policy:%s ingress[%d] reset", policyName, index)),
 		Exprs: []expr.Any{
-			&expr.Meta{Key: expr.MetaKeyMARK, Register: 1},
+			&expr.Meta{Key: expr.MetaKeyMARK, Register: 0x1},
 			&expr.Bitwise{
-				SourceRegister: 1,
-				DestRegister:   1,
+				SourceRegister: 0x1,
+				DestRegister:   0x1,
 				Len:            4,
 				Mask:           binaryutil.NativeEndian.PutUint32(^uint32(0x30000)), // 0xfffcffff
 				Xor:            binaryutil.NativeEndian.PutUint32(0x0),
 			},
-			&expr.Meta{Key: expr.MetaKeyMARK, SourceRegister: true, Register: 1},
+			&expr.Meta{Key: expr.MetaKeyMARK, SourceRegister: true, Register: 0x1},
 			&expr.Counter{},
 		},
 	}, n.nft.AddRule, false)
@@ -911,16 +913,16 @@ func (n *nftState) applyMarkCheck(policyChain *nftables.Chain, policyName string
 		Chain:    policyChain,
 		UserData: userDataComment(fmt.Sprintf("policy:%s ingress[%d] return", policyName, index)),
 		Exprs: []expr.Any{
-			&expr.Meta{Key: expr.MetaKeyMARK, Register: 1},
+			&expr.Meta{Key: expr.MetaKeyMARK, Register: 0x1},
 			&expr.Bitwise{
-				SourceRegister: 1,
-				DestRegister:   1,
+				SourceRegister: 0x1,
+				DestRegister:   0x1,
 				Len:            4,
 				Mask:           binaryutil.NativeEndian.PutUint32(0x30000),
 				Xor:            binaryutil.NativeEndian.PutUint32(0x0),
 			},
 			&expr.Cmp{
-				Register: 1,
+				Register: 0x1,
 				Op:       expr.CmpOpEq,
 				Data:     binaryutil.NativeEndian.PutUint32(0x30000),
 			},
@@ -1025,7 +1027,7 @@ func (n *nftState) applyPrefixes(chain *nftables.Chain, policyName string, peer 
 					&expr.Meta{Key: expr.MetaKeyNFPROTO, SourceRegister: false, Register: 0x1},
 					&expr.Cmp{Op: expr.CmpOpEq, Register: 0x1, Data: []byte{nfProtocol}},
 					&expr.Payload{
-						DestRegister: 1,
+						DestRegister: 0x1,
 						Base:         expr.PayloadBaseNetworkHeader,
 						Offset:       offset,
 						Len:          payloadLen,
@@ -1033,7 +1035,7 @@ func (n *nftState) applyPrefixes(chain *nftables.Chain, policyName string, peer 
 					&expr.Lookup{
 						SetName:        exceptSet.Name,
 						SetID:          exceptSet.ID,
-						SourceRegister: 1,
+						SourceRegister: 0x1,
 					},
 					&expr.Counter{},
 					&expr.Verdict{
@@ -1077,7 +1079,7 @@ func (n *nftState) applyPrefixes(chain *nftables.Chain, policyName string, peer 
 					SourceRegister: 0x1,
 				},
 				&expr.Counter{},
-				&expr.Meta{Key: expr.MetaKeyMARK, Register: 1},
+				&expr.Meta{Key: expr.MetaKeyMARK, Register: 0x1},
 				&expr.Bitwise{
 					SourceRegister: 0x1,
 					DestRegister:   0x1,
@@ -1207,11 +1209,13 @@ func (n *nftState) addIPRule(addrs []string, chain *nftables.Chain, policyName s
 	payloadLen := uint32(net.IPv4len)
 	keyType := nftables.TypeIPAddr
 	protocol := protoIPv4
+	nfProtocol := uint8(unix.NFPROTO_IPV4)
 	if net.ParseIP(addrs[0]).To4() == nil {
 		offset = IPv6OffSet
 		payloadLen = uint32(net.IPv6len)
 		keyType = nftables.TypeIP6Addr
 		protocol = protoIPv6
+		nfProtocol = uint8(unix.NFPROTO_IPV6)
 	}
 
 	if !isIngressChain(chain) {
@@ -1249,21 +1253,20 @@ func (n *nftState) addIPRule(addrs []string, chain *nftables.Chain, policyName s
 		Chain:    chain,
 		UserData: userDataComment(fmt.Sprintf("policy:%s selector-for:%s %s", policyName, selectorHash, protocol)),
 		Exprs: []expr.Any{
+			&expr.Meta{Key: expr.MetaKeyNFPROTO, SourceRegister: false, Register: 0x1},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 0x1, Data: []byte{nfProtocol}},
 			&expr.Payload{
-				DestRegister: 1,
+				DestRegister: 0x1,
 				Base:         expr.PayloadBaseNetworkHeader,
 				Offset:       offset,
 				Len:          payloadLen,
 			},
 			&expr.Lookup{
-				SourceRegister: 1,
+				SourceRegister: 0x1,
 				SetName:        ipSet.Name,
 				SetID:          ipSet.ID,
 			},
 			&expr.Counter{},
-			&expr.Verdict{
-				Kind: expr.VerdictAccept,
-			},
 		},
 	}, n.nft.AddRule, false)
 }
@@ -1346,22 +1349,22 @@ func (n *nftState) applyPolicyPeersRules(s *Server, chain *nftables.Chain, polic
 			UserData: userDataComment(fmt.Sprintf("policy:%s no peers skipped accept all", policyName)),
 			Exprs: []expr.Any{
 				&expr.Counter{},
-				&expr.Meta{Key: expr.MetaKeyMARK, Register: 1},
+				&expr.Meta{Key: expr.MetaKeyMARK, Register: 0x1},
 				&expr.Bitwise{
-					SourceRegister: 1,
-					DestRegister:   1,
+					SourceRegister: 0x1,
+					DestRegister:   0x1,
 					Len:            4,
 					Mask:           binaryutil.NativeEndian.PutUint32(^uint32(0x20000)), // 0xfffdffff
 					Xor:            binaryutil.NativeEndian.PutUint32(0),
 				},
 				&expr.Bitwise{
-					SourceRegister: 1,
-					DestRegister:   1,
+					SourceRegister: 0x1,
+					DestRegister:   0x1,
 					Len:            4,
 					Mask:           binaryutil.NativeEndian.PutUint32(0xffffffff),
 					Xor:            binaryutil.NativeEndian.PutUint32(0x20000), // 0x200000
 				},
-				&expr.Meta{Key: expr.MetaKeyMARK, SourceRegister: true, Register: 1},
+				&expr.Meta{Key: expr.MetaKeyMARK, SourceRegister: true, Register: 0x1},
 			}}, n.nft.AddRule, false); err != nil {
 			return err
 		}
@@ -1419,14 +1422,14 @@ func (n *nftState) applyProtoPortsRules(chain *nftables.Chain, policyName string
 		Chain:    chain,
 		UserData: userDataComment(fmt.Sprintf("policy:%s set:%s", policyName, set.Name)),
 		Exprs: []expr.Any{
-			&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
+			&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 0x1},
 			&expr.Cmp{
-				Register: 1,
+				Register: 0x1,
 				Op:       expr.CmpOpEq,
 				Data:     unixProto,
 			},
 			&expr.Payload{
-				DestRegister: 1,
+				DestRegister: 0x1,
 				Base:         expr.PayloadBaseTransportHeader,
 				Offset:       2, // l4 offset
 				Len:          2, // l4 offset
@@ -1434,9 +1437,9 @@ func (n *nftState) applyProtoPortsRules(chain *nftables.Chain, policyName string
 			&expr.Lookup{
 				SetName:        set.Name,
 				SetID:          set.ID,
-				SourceRegister: 1,
+				SourceRegister: 0x1,
 			},
-			&expr.Meta{Key: expr.MetaKeyMARK, Register: 1},
+			&expr.Meta{Key: expr.MetaKeyMARK, Register: 0x1},
 			// implement the mark as follows:
 			// clear the 0x10000 bit
 			// set the 0x10000 bit
@@ -1444,20 +1447,20 @@ func (n *nftState) applyProtoPortsRules(chain *nftables.Chain, policyName string
 			// without affecting any other bits that might be in use
 			// e.g. 0x20000 for address detection
 			&expr.Bitwise{
-				SourceRegister: 1,
-				DestRegister:   1,
+				SourceRegister: 0x1,
+				DestRegister:   0x1,
 				Len:            4,
 				Mask:           binaryutil.NativeEndian.PutUint32(^uint32(0x10000)), // 0xfffeffff
 				Xor:            binaryutil.NativeEndian.PutUint32(0),
 			},
 			&expr.Bitwise{
-				SourceRegister: 1,
-				DestRegister:   1,
+				SourceRegister: 0x1,
+				DestRegister:   0x1,
 				Len:            4,
 				Mask:           binaryutil.NativeEndian.PutUint32(0xffffffff),
 				Xor:            binaryutil.NativeEndian.PutUint32(0x10000), // 0x100000
 			},
-			&expr.Meta{Key: expr.MetaKeyMARK, SourceRegister: true, Register: 1},
+			&expr.Meta{Key: expr.MetaKeyMARK, SourceRegister: true, Register: 0x1},
 			&expr.Counter{},
 		},
 	}, n.nft.AddRule, false)
@@ -1585,22 +1588,22 @@ func (n *nftState) applyPolicyPortsRules(chain *nftables.Chain, policyName strin
 			UserData: userDataComment(fmt.Sprintf("policy:%s no ports skipped accept all", portChain.Name)),
 			Exprs: []expr.Any{
 				&expr.Counter{},
-				&expr.Meta{Key: expr.MetaKeyMARK, Register: 1},
+				&expr.Meta{Key: expr.MetaKeyMARK, Register: 0x1},
 				&expr.Bitwise{
-					SourceRegister: 1,
-					DestRegister:   1,
+					SourceRegister: 0x1,
+					DestRegister:   0x1,
 					Len:            4,
 					Mask:           binaryutil.NativeEndian.PutUint32(^uint32(0x10000)), // 0xfffeffff
 					Xor:            binaryutil.NativeEndian.PutUint32(0),
 				},
 				&expr.Bitwise{
-					SourceRegister: 1,
-					DestRegister:   1,
+					SourceRegister: 0x1,
+					DestRegister:   0x1,
 					Len:            4,
 					Mask:           binaryutil.NativeEndian.PutUint32(0xffffffff),
 					Xor:            binaryutil.NativeEndian.PutUint32(0x10000), // 0x100000
 				},
-				&expr.Meta{Key: expr.MetaKeyMARK, SourceRegister: true, Register: 1},
+				&expr.Meta{Key: expr.MetaKeyMARK, SourceRegister: true, Register: 0x1},
 			}}, n.nft.AddRule, false); err != nil {
 			return err
 		}
