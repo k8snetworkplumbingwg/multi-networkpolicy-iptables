@@ -664,8 +664,10 @@ func (n *nftState) applyCommonPrefixRules(chain *nftables.Chain, prefixes []stri
 			Chain:    chain,
 			UserData: userDataComment(fmt.Sprintf("common rule:%s", v4Set.Name)),
 			Exprs: []expr.Any{
+				&expr.Meta{Key: expr.MetaKeyNFPROTO, Register: 0x1},
+				&expr.Cmp{Op: expr.CmpOpEq, Register: 0x1, Data: []byte{unix.NFPROTO_IPV4}},
 				&expr.Payload{
-					DestRegister: 1,
+					DestRegister: 0x1,
 					Base:         expr.PayloadBaseNetworkHeader,
 					Offset:       offset,
 					Len:          uint32(net.IPv4len),
@@ -673,7 +675,7 @@ func (n *nftState) applyCommonPrefixRules(chain *nftables.Chain, prefixes []stri
 				&expr.Lookup{
 					SetName:        v4Set.Name,
 					SetID:          v4Set.ID,
-					SourceRegister: 1,
+					SourceRegister: 0x1,
 				},
 				&expr.Counter{},
 				&expr.Verdict{
@@ -698,8 +700,10 @@ func (n *nftState) applyCommonPrefixRules(chain *nftables.Chain, prefixes []stri
 			Chain:    chain,
 			UserData: userDataComment(fmt.Sprintf("common rule:%s", v6Set.Name)),
 			Exprs: []expr.Any{
+				&expr.Meta{Key: expr.MetaKeyNFPROTO, Register: 0x1},
+				&expr.Cmp{Op: expr.CmpOpEq, Register: 0x1, Data: []byte{unix.NFPROTO_IPV6}},
 				&expr.Payload{
-					DestRegister: 1,
+					DestRegister: 0x1,
 					Base:         expr.PayloadBaseNetworkHeader,
 					Offset:       offset,              // IPv6 offset
 					Len:          uint32(net.IPv6len), // IPv6 byte length
@@ -707,7 +711,7 @@ func (n *nftState) applyCommonPrefixRules(chain *nftables.Chain, prefixes []stri
 				&expr.Lookup{
 					SetName:        v6Set.Name,
 					SetID:          v6Set.ID,
-					SourceRegister: 1,
+					SourceRegister: 0x1,
 				},
 				&expr.Counter{},
 				&expr.Verdict{
@@ -984,8 +988,11 @@ func (n *nftState) applyPrefixes(chain *nftables.Chain, policyName string, peer 
 
 	if len(prefixes) > 0 {
 		offset := IPv4OffSet
+
+		nfProtocol := uint8(unix.NFPROTO_IPV4)
 		if isV6 {
 			offset = IPv6OffSet
+			nfProtocol = uint8(unix.NFPROTO_IPV6)
 		}
 		if !isIngressChain(chain) {
 			if !isV6 {
@@ -1015,6 +1022,8 @@ func (n *nftState) applyPrefixes(chain *nftables.Chain, policyName string, peer 
 				Chain:    chain,
 				UserData: userDataComment(ruleComment),
 				Exprs: []expr.Any{
+					&expr.Meta{Key: expr.MetaKeyNFPROTO, SourceRegister: false, Register: 0x1},
+					&expr.Cmp{Op: expr.CmpOpEq, Register: 0x1, Data: []byte{nfProtocol}},
 					&expr.Payload{
 						DestRegister: 1,
 						Base:         expr.PayloadBaseNetworkHeader,
@@ -1054,8 +1063,10 @@ func (n *nftState) applyPrefixes(chain *nftables.Chain, policyName string, peer 
 			Chain:    chain,
 			UserData: userDataComment(fmt.Sprintf("%s accept policy:%s cidr:%s", chain.Name, policyName, peer.IPBlock.CIDR)),
 			Exprs: []expr.Any{
+				&expr.Meta{Key: expr.MetaKeyNFPROTO, SourceRegister: false, Register: 0x1},
+				&expr.Cmp{Op: expr.CmpOpEq, Register: 0x1, Data: []byte{nfProtocol}},
 				&expr.Payload{
-					DestRegister: 1,
+					DestRegister: 0x1,
 					Base:         expr.PayloadBaseNetworkHeader,
 					Offset:       offset,
 					Len:          payloadLen,
@@ -1063,12 +1074,25 @@ func (n *nftState) applyPrefixes(chain *nftables.Chain, policyName string, peer 
 				&expr.Lookup{
 					SetName:        prefixesSet.Name,
 					SetID:          prefixesSet.ID,
-					SourceRegister: 1,
+					SourceRegister: 0x1,
 				},
 				&expr.Counter{},
-				&expr.Verdict{
-					Kind: expr.VerdictAccept,
+				&expr.Meta{Key: expr.MetaKeyMARK, Register: 1},
+				&expr.Bitwise{
+					SourceRegister: 0x1,
+					DestRegister:   0x1,
+					Len:            4,
+					Mask:           binaryutil.NativeEndian.PutUint32(^uint32(0x20000)), // 0xfffdffff
+					Xor:            binaryutil.NativeEndian.PutUint32(0),
 				},
+				&expr.Bitwise{
+					SourceRegister: 0x1,
+					DestRegister:   0x1,
+					Len:            4,
+					Mask:           binaryutil.NativeEndian.PutUint32(0xffffffff),
+					Xor:            binaryutil.NativeEndian.PutUint32(0x20000), // 0x200000
+				},
+				&expr.Meta{Key: expr.MetaKeyMARK, SourceRegister: true, Register: 0x1},
 			},
 		}, n.nft.AddRule, false); err != nil {
 			return err
@@ -1435,9 +1459,6 @@ func (n *nftState) applyProtoPortsRules(chain *nftables.Chain, policyName string
 			},
 			&expr.Meta{Key: expr.MetaKeyMARK, SourceRegister: true, Register: 1},
 			&expr.Counter{},
-			&expr.Verdict{
-				Kind: expr.VerdictAccept,
-			},
 		},
 	}, n.nft.AddRule, false)
 }
