@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/klog"
 	utiliptables "k8s.io/kubernetes/pkg/util/iptables"
+	sets "k8s.io/apimachinery/pkg/util/sets"
 )
 
 // PolicyNetworkAnnotation is annotation for multiNetworkPolicy,
@@ -44,7 +45,8 @@ const PolicyNetworkAnnotation = "k8s.v1.cni.cncf.io/policy-for"
 func GetChainLines(table Table, save []byte) map[Chain][]byte {
 */
 type iptableBuffer struct {
-	currentFilter map[utiliptables.Chain]struct{}
+	//currentFilter map[utiliptables.Chain]struct{}
+	currentFilter sets.Set[utiliptables.Chain]
 	currentChain  map[utiliptables.Chain]bool
 	activeChain   map[utiliptables.Chain]bool
 	policyCommon  *bytes.Buffer
@@ -60,7 +62,8 @@ type iptableBuffer struct {
 
 func newIptableBuffer() *iptableBuffer {
 	buf := &iptableBuffer{
-		currentFilter: make(map[utiliptables.Chain]struct{}),
+		//currentFilter: make(map[utiliptables.Chain]struct{}),
+		currentFilter: sets.New[utiliptables.Chain](),
 		policyCommon:  bytes.NewBuffer(nil),
 		policyIndex:   bytes.NewBuffer(nil),
 		ingressPorts:  bytes.NewBuffer(nil),

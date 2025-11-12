@@ -54,9 +54,10 @@ import (
 	nodeutil "k8s.io/component-helpers/node/util"
 	"k8s.io/klog"
 	api "k8s.io/kubernetes/pkg/apis/core"
-	"k8s.io/kubernetes/pkg/util/async"
+	//"k8s.io/kubernetes/pkg/util/async"
+	"k8s.io/kubernetes/pkg/proxy/runner"
 	utiliptables "k8s.io/kubernetes/pkg/util/iptables"
-	"k8s.io/utils/exec"
+	//"k8s.io/utils/exec"
 )
 
 const defaultSyncPeriod = 30
@@ -94,7 +95,7 @@ type Server struct {
 	podLister    corelisters.PodLister
 	policyLister multilisterv1beta1.MultiNetworkPolicyLister
 
-	syncRunner       *async.BoundedFrequencyRunner
+	syncRunner       *runner.BoundedFrequencyRunner
 	syncRunnerStopCh chan struct{}
 }
 
@@ -243,7 +244,7 @@ func NewServer(o *Options) (*Server, error) {
 
 	syncPeriod := time.Duration(o.syncPeriod) * time.Second
 	minSyncPeriod := 0 * time.Second
-	burstSyncs := 2
+	retryInterval := 5 * time.Second
 
 	policyChanges := controllers.NewPolicyChangeTracker()
 	if policyChanges == nil {
@@ -273,8 +274,8 @@ func NewServer(o *Options) (*Server, error) {
 		Recorder:            recorder,
 		ConfigSyncPeriod:    15 * time.Minute,
 		NodeRef:             nodeRef,
-		ip4Tables:           utiliptables.New(exec.New(), utiliptables.ProtocolIPv4),
-		ip6Tables:           utiliptables.New(exec.New(), utiliptables.ProtocolIPv6),
+		ip4Tables:           utiliptables.New(utiliptables.ProtocolIPv4),
+		ip6Tables:           utiliptables.New(utiliptables.ProtocolIPv6),
 
 		policyChanges: policyChanges,
 		podChanges:    podChanges,
@@ -284,8 +285,8 @@ func NewServer(o *Options) (*Server, error) {
 		policyMap:     make(controllers.PolicyMap),
 		namespaceMap:  make(controllers.NamespaceMap),
 	}
-	server.syncRunner = async.NewBoundedFrequencyRunner(
-		"sync-runner", server.syncMultiPolicy, minSyncPeriod, syncPeriod, burstSyncs)
+	server.syncRunner = runner.NewBoundedFrequencyRunner(
+		"sync-runner", server.syncMultiPolicy, minSyncPeriod, retryInterval, syncPeriod)
 	server.syncRunnerStopCh = make(chan struct{})
 	return server, nil
 }
@@ -442,7 +443,7 @@ func (s *Server) OnNamespaceSynced() {
 	}
 }
 
-func (s *Server) syncMultiPolicy() {
+func (s *Server) syncMultiPolicy() error {
 	klog.V(4).Infof("syncMultiPolicy")
 	s.namespaceMap.Update(s.nsChanges)
 	s.podMap.Update(s.podChanges)
@@ -451,7 +452,9 @@ func (s *Server) syncMultiPolicy() {
 	pods, err := s.podLister.Pods(metav1.NamespaceAll).List(labels.Everything())
 	if err != nil {
 		klog.Errorf("failed to get pods: %v", err)
+		return fmt.Errorf("failed to list pods for sync: %w", err)
 	}
+	var syncError error
 	for _, p := range pods {
 		s.podMap.Update(s.podChanges)
 		if !controllers.IsMultiNetworkpolicyTarget(p) {
@@ -464,6 +467,9 @@ func (s *Server) syncMultiPolicy() {
 			podInfo, err := s.podMap.GetPodInfo(p)
 			if err != nil {
 				klog.Errorf("cannot get %s/%s podInfo: %v", p.Namespace, p.Name, err)
+				if syncError == nil {
+					syncError = fmt.Errorf("failed to get pod info for %s/%s: %w", p.Namespace, p.Name, err)
+				}
 				continue
 			}
 			if len(podInfo.Interfaces) == 0 {
@@ -478,18 +484,27 @@ func (s *Server) syncMultiPolicy() {
 			netns, err := ns.GetNS(netnsPath)
 			if err != nil {
 				klog.Errorf("cannot get pod (%s/%s:%s) netns (%s): %v", p.Namespace, p.Name, p.Status.Phase, netnsPath, err)
+				if syncError == nil {
+					syncError = fmt.Errorf("failed to get netns for %s/%s: %w", p.Namespace, p.Name, err)
+				}
 				continue
 			}
 
 			klog.V(8).Infof("pod: %s/%s %s", p.Namespace, p.Name, netnsPath)
-			_ = netns.Do(func(_ ns.NetNS) error {
-				err := s.generatePolicyRulesForPod(p, podInfo)
-				return err
+			err = netns.Do(func(_ ns.NetNS) error {
+				return s.generatePolicyRulesForPod(p, podInfo)
 			})
+			if err != nil {
+				klog.Errorf("failed to apply policy rules for pod [%s/%s]: %v", p.Namespace, p.Name, err)
+				if syncError == nil {
+					syncError = fmt.Errorf("failed to apply policy rules for %s/%s: %w", p.Namespace, p.Name, err)
+				}
+			}
 		} else {
 			klog.V(8).Infof("SYNC %s/%s: skipped", p.Namespace, p.Name)
 		}
 	}
+	return  syncError
 }
 
 func (s *Server) backupIptablesRules(pod *v1.Pod, suffix string, iptables utiliptables.Interface) error {

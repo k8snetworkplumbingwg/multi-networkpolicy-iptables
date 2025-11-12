@@ -38,7 +38,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	pb "k8s.io/cri-api/pkg/apis/runtime/v1"
 	"k8s.io/klog"
-	k8sutils "k8s.io/kubernetes/pkg/kubelet/util"
+	k8sutils "k8s.io/cri-client/pkg/util"
 )
 
 // RuntimeKind is enum type variable for container runtime
