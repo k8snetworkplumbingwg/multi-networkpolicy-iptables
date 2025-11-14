@@ -27,9 +27,9 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	sets "k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog"
 	utiliptables "k8s.io/kubernetes/pkg/util/iptables"
-	sets "k8s.io/apimachinery/pkg/util/sets"
 )
 
 // PolicyNetworkAnnotation is annotation for multiNetworkPolicy,
@@ -62,7 +62,6 @@ type iptableBuffer struct {
 
 func newIptableBuffer() *iptableBuffer {
 	buf := &iptableBuffer{
-		//currentFilter: make(map[utiliptables.Chain]struct{}),
 		currentFilter: sets.New[utiliptables.Chain](),
 		policyCommon:  bytes.NewBuffer(nil),
 		policyIndex:   bytes.NewBuffer(nil),

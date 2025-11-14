@@ -54,10 +54,8 @@ import (
 	nodeutil "k8s.io/component-helpers/node/util"
 	"k8s.io/klog"
 	api "k8s.io/kubernetes/pkg/apis/core"
-	//"k8s.io/kubernetes/pkg/util/async"
 	"k8s.io/kubernetes/pkg/proxy/runner"
 	utiliptables "k8s.io/kubernetes/pkg/util/iptables"
-	//"k8s.io/utils/exec"
 )
 
 const defaultSyncPeriod = 30
@@ -504,7 +502,7 @@ func (s *Server) syncMultiPolicy() error {
 			klog.V(8).Infof("SYNC %s/%s: skipped", p.Namespace, p.Name)
 		}
 	}
-	return  syncError
+	return syncError
 }
 
 func (s *Server) backupIptablesRules(pod *v1.Pod, suffix string, iptables utiliptables.Interface) error {
