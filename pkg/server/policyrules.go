@@ -27,7 +27,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	sets "k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog"
 	utiliptables "k8s.io/kubernetes/pkg/util/iptables"
 )
@@ -45,8 +44,7 @@ const PolicyNetworkAnnotation = "k8s.v1.cni.cncf.io/policy-for"
 func GetChainLines(table Table, save []byte) map[Chain][]byte {
 */
 type iptableBuffer struct {
-	//currentFilter map[utiliptables.Chain]struct{}
-	currentFilter sets.Set[utiliptables.Chain]
+	currentFilter map[utiliptables.Chain]struct{}
 	currentChain  map[utiliptables.Chain]bool
 	activeChain   map[utiliptables.Chain]bool
 	policyCommon  *bytes.Buffer
@@ -62,7 +60,7 @@ type iptableBuffer struct {
 
 func newIptableBuffer() *iptableBuffer {
 	buf := &iptableBuffer{
-		currentFilter: sets.New[utiliptables.Chain](),
+		currentFilter: make(map[utiliptables.Chain]struct{}),
 		policyCommon:  bytes.NewBuffer(nil),
 		policyIndex:   bytes.NewBuffer(nil),
 		ingressPorts:  bytes.NewBuffer(nil),
@@ -87,8 +85,12 @@ func (ipt *iptableBuffer) Init(iptables utiliptables.Interface) {
 		klog.Errorf("failed to get iptable filter: %v", err)
 		return
 	}
-	//ipt.currentFilter = utiliptables.GetChainLines(utiliptables.TableFilter, tmpbuf.Bytes())
-	ipt.currentFilter = utiliptables.GetChainsFromTable(tmpbuf.Bytes())
+	chainsFromTable := utiliptables.GetChainsFromTable(tmpbuf.Bytes())
+	ipt.currentFilter = make(map[utiliptables.Chain]struct{})
+	for k := range chainsFromTable {
+		ipt.currentFilter[k] = struct{}{}
+	}
+
 	for k := range ipt.currentFilter {
 		if strings.HasPrefix(string(k), "MULTI-") {
 			ipt.currentChain[k] = true
