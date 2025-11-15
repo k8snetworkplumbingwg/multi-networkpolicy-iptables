@@ -41,4 +41,12 @@ const (
 	sourceAddressSuffix      = "saddrs"
 	podInterfacesName        = "pod_interfaces"
 	PolicyNetworkAnnotation  = "k8s.v1.cni.cncf.io/policy-for"
+
+	// Marks for rules
+	peerRuleMark  = uint32(0x20000)
+	portRuleMark  = uint32(0x10000)
+	matchRuleMark = uint32(0x30000)
+	// Masks
+	zeroRuleMark = uint32(0x0)
+	fullRuleMark = uint32(0xffffffff)
 )
