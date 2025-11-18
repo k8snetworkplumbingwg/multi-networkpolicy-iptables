@@ -1109,14 +1109,7 @@ func (n *nftState) applyPrefixes(chain *nftables.Chain, policyName string, peer 
 					DestRegister:   0x1,
 					Len:            4,
 					Mask:           binaryutil.NativeEndian.PutUint32(^peerRuleMark), // 0xfffdffff
-					Xor:            binaryutil.NativeEndian.PutUint32(zeroRuleMark),
-				},
-				&expr.Bitwise{
-					SourceRegister: 0x1,
-					DestRegister:   0x1,
-					Len:            4,
-					Mask:           binaryutil.NativeEndian.PutUint32(fullRuleMark),
-					Xor:            binaryutil.NativeEndian.PutUint32(peerRuleMark), // 0x200000
+					Xor:            binaryutil.NativeEndian.PutUint32(peerRuleMark),
 				},
 				&expr.Meta{Key: expr.MetaKeyMARK, SourceRegister: true, Register: 0x1},
 				&expr.Counter{},
@@ -1303,15 +1296,8 @@ func (n *nftState) addIPRule(addrs []string, chain *nftables.Chain, policyName s
 				SourceRegister: 0x1,
 				DestRegister:   0x1,
 				Len:            4,
-				Mask:           binaryutil.NativeEndian.PutUint32(^peerRuleMark), // 0xfffdffff
-				Xor:            binaryutil.NativeEndian.PutUint32(zeroRuleMark),
-			},
-			&expr.Bitwise{
-				SourceRegister: 0x1,
-				DestRegister:   0x1,
-				Len:            4,
-				Mask:           binaryutil.NativeEndian.PutUint32(fullRuleMark),
-				Xor:            binaryutil.NativeEndian.PutUint32(peerRuleMark), // 0x200000
+				Mask:           binaryutil.NativeEndian.PutUint32(^peerRuleMark),
+				Xor:            binaryutil.NativeEndian.PutUint32(peerRuleMark),
 			},
 			&expr.Meta{Key: expr.MetaKeyMARK, SourceRegister: true, Register: 0x1},
 			&expr.Counter{},
@@ -1407,14 +1393,7 @@ func (n *nftState) applyPolicyPeersRules(s *Server, chain *nftables.Chain, polic
 					SourceRegister: 0x1,
 					DestRegister:   0x1,
 					Len:            4,
-					Mask:           binaryutil.NativeEndian.PutUint32(^peerRuleMark), // 0xfffdffff
-					Xor:            binaryutil.NativeEndian.PutUint32(zeroRuleMark),
-				},
-				&expr.Bitwise{
-					SourceRegister: 0x1,
-					DestRegister:   0x1,
-					Len:            4,
-					Mask:           binaryutil.NativeEndian.PutUint32(fullRuleMark),
+					Mask:           binaryutil.NativeEndian.PutUint32(^peerRuleMark),
 					Xor:            binaryutil.NativeEndian.PutUint32(peerRuleMark), // 0x200000
 				},
 				&expr.Meta{Key: expr.MetaKeyMARK, SourceRegister: true, Register: 0x1},
@@ -1504,7 +1483,7 @@ func (n *nftState) applyProtoPortsRules(chain *nftables.Chain, policyName string
 				SourceRegister: 0x1,
 				DestRegister:   0x1,
 				Len:            4,
-				Mask:           binaryutil.NativeEndian.PutUint32(portRuleMark),
+				Mask:           binaryutil.NativeEndian.PutUint32(^portRuleMark),
 				Xor:            binaryutil.NativeEndian.PutUint32(portRuleMark),
 			},
 			&expr.Meta{Key: expr.MetaKeyMARK, SourceRegister: true, Register: 0x1},
@@ -1640,7 +1619,7 @@ func (n *nftState) applyPolicyPortsRules(chain *nftables.Chain, policyName strin
 					SourceRegister: 0x1,
 					DestRegister:   0x1,
 					Len:            4,
-					Mask:           binaryutil.NativeEndian.PutUint32(portRuleMark),
+					Mask:           binaryutil.NativeEndian.PutUint32(^portRuleMark),
 					Xor:            binaryutil.NativeEndian.PutUint32(portRuleMark),
 				},
 				&expr.Meta{Key: expr.MetaKeyMARK, SourceRegister: true, Register: 0x1},

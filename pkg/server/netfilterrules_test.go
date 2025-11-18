@@ -241,7 +241,7 @@ func TestApplyPodRules(t *testing.T) {
 	c.FlushRuleset()
 	defer c.FlushRuleset()
 
-	nftState, testNs, mockServer, podMockInfo, err := prepareEnv(c)
+	nftState, testNs, mockServer, podMockInfo, err := prepareEnv(c, true)
 	if err != nil {
 		t.Fatalf("failed to prepare test env: %s", err.Error())
 	}
@@ -483,7 +483,7 @@ func TestApplyPodRulesNoPorts(t *testing.T) {
 	c.FlushRuleset()
 	defer c.FlushRuleset()
 
-	nftState, testNs, mockServer, podMockInfo, err := prepareEnv(c)
+	nftState, testNs, mockServer, podMockInfo, err := prepareEnv(c, true)
 	if err != nil {
 		t.Fatalf("failed to prepare test env: %s", err.Error())
 	}
@@ -697,7 +697,7 @@ func TestApplyPolicyPortsRules(t *testing.T) {
 	c.FlushRuleset()
 	defer c.FlushRuleset()
 
-	nftState, testNs, _, _, err := prepareEnv(c)
+	nftState, testNs, _, _, err := prepareEnv(c, false)
 	if err != nil {
 		t.Fatalf("failed to prepare test env: %s", err.Error())
 	}
@@ -1088,7 +1088,7 @@ func NewCNIConfig(cniName, cniType string) string {
 	return fmt.Sprintf(cniConfigTemp, cniName, cniType)
 }
 
-func prepareEnv(c *nftables.Conn) (*nftState, string, *Server, *controllers.PodInfo, error) {
+func prepareEnv(c *nftables.Conn, createServer bool) (*nftState, string, *Server, *controllers.PodInfo, error) {
 	podMockInfo := &controllers.PodInfo{
 		Name:      "mock-pod",
 		Namespace: "default",
@@ -1105,36 +1105,16 @@ func prepareEnv(c *nftables.Conn) (*nftState, string, *Server, *controllers.PodI
 	if nftState == nil {
 		return nil, "", nil, podMockInfo, fmt.Errorf("bootstrapNetfilterRules() returned nil state")
 	}
-	mockServer := NewFakeServer("server")
+	mockServer := &Server{
+		Options: &Options{
+			acceptICMPv6:   true,
+			acceptICMP:     true,
+			allowSrcPrefix: []string{"fc00::/8", "fd00::/8", "10.0.0.1/32", "10.0.1.0/24"},
+			allowDstPrefix: []string{"fe00::/8", "ff00::/8", "10.0.0.2/32", "10.0.2.0/24"},
+		},
+	}
 
 	testNs := "testns1"
-	if err := AddNamespace(mockServer, testNs); err != nil {
-		return nftState, testNs, mockServer, podMockInfo, fmt.Errorf("failed to add namespace %q: %w", testNs, err)
-	}
-
-	mockServer.netdefChanges.Update(nil, NewNetDef(testNs, "policy-net-1", NewCNIConfig("testCNI", "multi")))
-	mockServer.netdefChanges.Update(nil, NewNetDef(testNs, "policy-net-2", NewCNIConfig("testCNI", "multi")))
-
-	pod1 := NewFakePodWithNetAnnotation(
-		testNs,
-		"testpod1",
-		"policy-net-1",
-		NewFakeNetworkStatus(testNs, "policy-net-1", "192.168.1.1", "10.1.1.1"),
-		map[string]string{"app": "test"})
-	if err := AddPod(mockServer, pod1); err != nil {
-		return nftState, testNs, mockServer, podMockInfo, fmt.Errorf("failed to add pod: %w", err)
-	}
-
-	pod2 := NewFakePodWithNetAnnotation(
-		testNs,
-		"testpod2",
-		"policy-net-1",
-		NewFakeNetworkStatus(testNs, "policy-net-1", "192.168.1.2", "10.1.1.2"),
-		map[string]string{"app": "test2"})
-	if err := AddPod(mockServer, pod2); err != nil {
-		return nftState, testNs, mockServer, podMockInfo, fmt.Errorf("failed to add pod: %w", err)
-	}
-
 	err = nftState.applyCommonChainRules(mockServer)
 	if err != nil {
 		return nftState, testNs, mockServer, podMockInfo, fmt.Errorf("applyCommonChainRules() failed: %w", err)
@@ -1142,6 +1122,35 @@ func prepareEnv(c *nftables.Conn) (*nftState, string, *Server, *controllers.PodI
 	err = nftState.nft.Flush()
 	if err != nil {
 		return nftState, testNs, mockServer, podMockInfo, fmt.Errorf("nftState.nft.Flush() failed: %w", err)
+	}
+	if createServer {
+		mockServer = NewFakeServer("server")
+		if err := AddNamespace(mockServer, testNs); err != nil {
+			return nftState, testNs, mockServer, podMockInfo, fmt.Errorf("failed to add namespace %q: %w", testNs, err)
+		}
+
+		mockServer.netdefChanges.Update(nil, NewNetDef(testNs, "policy-net-1", NewCNIConfig("testCNI", "multi")))
+		mockServer.netdefChanges.Update(nil, NewNetDef(testNs, "policy-net-2", NewCNIConfig("testCNI", "multi")))
+
+		pod1 := NewFakePodWithNetAnnotation(
+			testNs,
+			"testpod1",
+			"policy-net-1",
+			NewFakeNetworkStatus(testNs, "policy-net-1", "192.168.1.1", "10.1.1.1"),
+			map[string]string{"app": "test"})
+		if err := AddPod(mockServer, pod1); err != nil {
+			return nftState, testNs, mockServer, podMockInfo, fmt.Errorf("failed to add pod: %w", err)
+		}
+
+		pod2 := NewFakePodWithNetAnnotation(
+			testNs,
+			"testpod2",
+			"policy-net-1",
+			NewFakeNetworkStatus(testNs, "policy-net-1", "192.168.1.2", "10.1.1.2"),
+			map[string]string{"app": "test2"})
+		if err := AddPod(mockServer, pod2); err != nil {
+			return nftState, testNs, mockServer, podMockInfo, fmt.Errorf("failed to add pod: %w", err)
+		}
 	}
 
 	return nftState, testNs, mockServer, podMockInfo, nil
