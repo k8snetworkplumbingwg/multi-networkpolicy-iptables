@@ -1139,6 +1139,10 @@ func prepareEnv(c *nftables.Conn) (*nftState, string, *Server, *controllers.PodI
 	if err != nil {
 		return nftState, testNs, mockServer, podMockInfo, fmt.Errorf("applyCommonChainRules() failed: %w", err)
 	}
+	err = nftState.nft.Flush()
+	if err != nil {
+		return nftState, testNs, mockServer, podMockInfo, fmt.Errorf("nftState.nft.Flush() failed: %w", err)
+	}
 
 	return nftState, testNs, mockServer, podMockInfo, nil
 }
