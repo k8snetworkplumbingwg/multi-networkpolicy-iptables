@@ -44,6 +44,7 @@ metadata:
     app: test-ingress-ns-selector-no-pods
     name: pod-server
 spec:
+  terminationGracePeriodSeconds: 0
   containers:
   - name: macvlan-worker1
     image: ghcr.io/k8snetworkplumbingwg/multi-networkpolicy-iptables:e2e-test
@@ -62,6 +63,7 @@ metadata:
     app: test-ingress-ns-selector-no-pods
     name: pod-client-a
 spec:
+  terminationGracePeriodSeconds: 0
   containers:
   - name: macvlan-worker1
     image: ghcr.io/k8snetworkplumbingwg/multi-networkpolicy-iptables:e2e-test
@@ -80,6 +82,7 @@ metadata:
     app: test-ingress-ns-selector-no-pods
     name: pod-client-b
 spec:
+  terminationGracePeriodSeconds: 0
   containers:
   - name: macvlan-worker1
     image: ghcr.io/k8snetworkplumbingwg/multi-networkpolicy-iptables:e2e-test
