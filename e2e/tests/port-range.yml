@@ -39,6 +39,7 @@ metadata:
     app: test-port-range
     name: pod-a
 spec:
+  terminationGracePeriodSeconds: 0
   containers:
   - name: netcat-tcp-5555
     image: ghcr.io/k8snetworkplumbingwg/multi-networkpolicy-iptables:e2e-test
@@ -62,6 +63,7 @@ metadata:
     app: test-port-range
     name: pod-b
 spec:
+  terminationGracePeriodSeconds: 0
   containers:
   - name: netcat-tcp-5555
     image: ghcr.io/k8snetworkplumbingwg/multi-networkpolicy-iptables:e2e-test

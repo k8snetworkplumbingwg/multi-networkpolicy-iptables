@@ -40,6 +40,7 @@ metadata:
     app: test-ipblock
     name: pod-server
 spec:
+  terminationGracePeriodSeconds: 0
   containers:
   - name: macvlan-worker1
     image: ghcr.io/k8snetworkplumbingwg/multi-networkpolicy-iptables:e2e-test
@@ -62,6 +63,7 @@ metadata:
     app: test-ipblock
     name: pod-client-a
 spec:
+  terminationGracePeriodSeconds: 0
   containers:
   - name: macvlan-worker1
     image: ghcr.io/k8snetworkplumbingwg/multi-networkpolicy-iptables:e2e-test
@@ -84,6 +86,7 @@ metadata:
     app: test-ipblock
     name: pod-client-b
 spec:
+  terminationGracePeriodSeconds: 0
   containers:
   - name: macvlan-worker1
     image: ghcr.io/k8snetworkplumbingwg/multi-networkpolicy-iptables:e2e-test
@@ -106,6 +109,7 @@ metadata:
     app: test-ipblock
     name: pod-client-c
 spec:
+  terminationGracePeriodSeconds: 0
   containers:
   - name: macvlan-worker1
     image: ghcr.io/k8snetworkplumbingwg/multi-networkpolicy-iptables:e2e-test

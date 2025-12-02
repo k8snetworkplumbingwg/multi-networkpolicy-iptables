@@ -39,6 +39,7 @@ metadata:
     app: test-protocol-only-ports
     name: pod-a
 spec:
+  terminationGracePeriodSeconds: 0
   containers:
   - name: netcat-tcp
     image: ghcr.io/k8snetworkplumbingwg/multi-networkpolicy-iptables:e2e-test
@@ -62,6 +63,7 @@ metadata:
     app: test-protocol-only-ports
     name: pod-b
 spec:
+  terminationGracePeriodSeconds: 0
   containers:
   - name: netcat-tcp
     image: ghcr.io/k8snetworkplumbingwg/multi-networkpolicy-iptables:e2e-test
