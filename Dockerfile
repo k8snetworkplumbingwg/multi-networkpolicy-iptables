@@ -1,5 +1,5 @@
 # This Dockerfile is used to build the image available on DockerHub
-FROM golang:1.24 as build
+FROM golang:1.26.5 as build
 
 # Add everything
 ADD . /usr/src/multi-networkpolicy-iptables
