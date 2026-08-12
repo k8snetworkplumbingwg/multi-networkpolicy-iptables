@@ -95,6 +95,11 @@ type Server struct {
 
 	syncRunner       *runner.BoundedFrequencyRunner
 	syncRunnerStopCh chan struct{}
+	syncRunnerDoneCh chan struct{}
+	syncRunnerMu     sync.Mutex
+	syncRunnerClosed bool
+	syncRunnerActive bool
+	stopCh           <-chan struct{}
 }
 
 // RunPodConfig ...
@@ -105,13 +110,18 @@ func (s *Server) RunPodConfig() {
 
 	podConfig := controllers.NewPodConfig(informerFactory.Core().V1().Pods(), s.ConfigSyncPeriod)
 	podConfig.RegisterEventHandler(s)
-	go podConfig.Run(wait.NeverStop)
-	informerFactory.Start(wait.NeverStop)
+	stopCh := s.stopCh
+	if stopCh == nil {
+		stopCh = wait.NeverStop
+	}
+	go podConfig.Run(stopCh)
+	informerFactory.Start(stopCh)
 	s.SyncLoop()
 }
 
 // Run ...
 func (s *Server) Run(_ string, stopCh chan struct{}) {
+	s.stopCh = stopCh
 	if s.Broadcaster != nil {
 		s.Broadcaster.StartRecordingToSink(
 			&v1core.EventSinkImpl{Interface: s.Client.CoreV1().Events("")})
@@ -120,8 +130,8 @@ func (s *Server) Run(_ string, stopCh chan struct{}) {
 	informerFactory := informers.NewSharedInformerFactoryWithOptions(s.Client, s.ConfigSyncPeriod)
 	nsConfig := controllers.NewNamespaceConfig(informerFactory.Core().V1().Namespaces(), s.ConfigSyncPeriod)
 	nsConfig.RegisterEventHandler(s)
-	go nsConfig.Run(wait.NeverStop)
-	informerFactory.Start(wait.NeverStop)
+	go nsConfig.Run(stopCh)
+	informerFactory.Start(stopCh)
 
 	policyInformerFactory := multiinformer.NewSharedInformerFactoryWithOptions(
 		s.NetworkPolicyClient, s.ConfigSyncPeriod)
@@ -130,16 +140,16 @@ func (s *Server) Run(_ string, stopCh chan struct{}) {
 	policyConfig := controllers.NewNetworkPolicyConfig(
 		policyInformerFactory.K8sCniCncfIo().V1beta1().MultiNetworkPolicies(), s.ConfigSyncPeriod)
 	policyConfig.RegisterEventHandler(s)
-	go policyConfig.Run(wait.NeverStop)
-	policyInformerFactory.Start(wait.NeverStop)
+	go policyConfig.Run(stopCh)
+	policyInformerFactory.Start(stopCh)
 
 	netdefInformarFactory := netdefinformerv1.NewSharedInformerFactoryWithOptions(
 		s.NetDefClient, s.ConfigSyncPeriod)
 	netdefConfig := controllers.NewNetDefConfig(
 		netdefInformarFactory.K8sCniCncfIo().V1().NetworkAttachmentDefinitions(), s.ConfigSyncPeriod)
 	netdefConfig.RegisterEventHandler(s)
-	go netdefConfig.Run(wait.NeverStop)
-	netdefInformarFactory.Start(wait.NeverStop)
+	go netdefConfig.Run(stopCh)
+	netdefInformarFactory.Start(stopCh)
 
 	s.birthCry()
 
@@ -147,7 +157,7 @@ func (s *Server) Run(_ string, stopCh chan struct{}) {
 	<-stopCh
 
 	// Stop the sync runner loop
-	s.syncRunnerStopCh <- struct{}{}
+	s.stopSyncRunner()
 
 	// Delete all iptables by running the `syncMultiPolicy` with no MultiNetworkPolicies
 	s.policyMap = nil
@@ -173,7 +183,50 @@ func (s *Server) birthCry() {
 
 // SyncLoop ...
 func (s *Server) SyncLoop() {
+	if s.syncRunner == nil {
+		return
+	}
+
+	s.syncRunnerMu.Lock()
+	if s.syncRunnerClosed {
+		s.syncRunnerMu.Unlock()
+		return
+	}
+	s.syncRunnerActive = true
+	s.syncRunnerMu.Unlock()
+
+	defer func() {
+		s.syncRunnerMu.Lock()
+		s.syncRunnerActive = false
+		if s.syncRunnerDoneCh != nil {
+			close(s.syncRunnerDoneCh)
+			s.syncRunnerDoneCh = nil
+		}
+		s.syncRunnerMu.Unlock()
+	}()
 	s.syncRunner.Loop(s.syncRunnerStopCh)
+}
+
+func (s *Server) stopSyncRunner() {
+	var doneCh chan struct{}
+
+	s.syncRunnerMu.Lock()
+	if s.syncRunnerClosed {
+		s.syncRunnerMu.Unlock()
+		return
+	}
+	s.syncRunnerClosed = true
+	if s.syncRunnerStopCh != nil {
+		close(s.syncRunnerStopCh)
+	}
+	if s.syncRunnerActive {
+		doneCh = s.syncRunnerDoneCh
+	}
+	s.syncRunnerMu.Unlock()
+
+	if doneCh != nil {
+		<-doneCh
+	}
 }
 
 // NewServer ...
@@ -286,12 +339,18 @@ func NewServer(o *Options) (*Server, error) {
 	server.syncRunner = runner.NewBoundedFrequencyRunner(
 		"sync-runner", server.syncMultiPolicy, minSyncPeriod, retryInterval, syncPeriod)
 	server.syncRunnerStopCh = make(chan struct{})
+	server.syncRunnerDoneCh = make(chan struct{})
 	return server, nil
 }
 
 // Sync ...
 func (s *Server) Sync() {
 	klog.V(4).Infof("Sync Done!")
+	s.syncRunnerMu.Lock()
+	defer s.syncRunnerMu.Unlock()
+	if s.syncRunnerClosed {
+		return
+	}
 	if s.syncRunner != nil {
 		s.syncRunner.Run()
 	}

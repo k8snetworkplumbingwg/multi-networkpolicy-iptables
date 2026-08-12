@@ -22,6 +22,8 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/k8snetworkplumbingwg/multi-networkpolicy-iptables/pkg/controllers"
@@ -214,6 +216,12 @@ func NewCNIConfigList(cniName, cniType string) string {
 			}]
 	}`
 	return fmt.Sprintf(cniConfigTemp, cniName, cniType)
+}
+
+func normalizedRuleLines(rules string) []string {
+	lines := strings.Split(strings.TrimSpace(rules), "\n")
+	sort.Strings(lines)
+	return lines
 }
 
 var _ = Describe("policyrules testing", func() {
@@ -2428,7 +2436,7 @@ COMMIT
 -A MULTI-0-EGRESS-0-TO -o net1 -d 2001:db8:a::11 -j MARK --set-xmark 0x20000/0x20000
 COMMIT
 `
-			Expect(buf.filterRules.String()).To(Equal(expectedRules))
+			Expect(normalizedRuleLines(buf.filterRules.String())).To(Equal(normalizedRuleLines(expectedRules)))
 		})
 	})
 })

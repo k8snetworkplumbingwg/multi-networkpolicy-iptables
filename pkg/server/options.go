@@ -22,6 +22,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/k8snetworkplumbingwg/multi-networkpolicy-iptables/pkg/controllers"
 	"github.com/spf13/pflag"
@@ -60,7 +61,8 @@ type Options struct {
 	customIPv6IngressRule []string
 	customIPv6EgressRule  []string
 	// stopCh is used to stop the command
-	stopCh chan struct{}
+	stopCh   chan struct{}
+	stopOnce sync.Once
 }
 
 // AddFlags adds command line flags into command
@@ -187,7 +189,9 @@ func (o *Options) Run() error {
 
 // Stop halts the command
 func (o *Options) Stop() {
-	o.stopCh <- struct{}{}
+	o.stopOnce.Do(func() {
+		close(o.stopCh)
+	})
 }
 
 // NewOptions initializes Options
